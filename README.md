@@ -9,7 +9,7 @@ Stream your Mac's screen and sound to an Android phone, and use the phone as a m
 
 Free and open source under the [MIT License](LICENSE). [Watch the 40-second intro video](../../releases/download/v1.0/ScreenBeam-promo.mp4).
 
-**Requirements:** macOS 14+ (Apple Silicon or Intel; Mac sound needs macOS 14.2+), and Android 8+ (tested on a Galaxy S24 Ultra).
+**Requirements:** macOS 14.2 or later (Apple Silicon or Intel), and Android 8+ (tested on a Galaxy S24 Ultra).
 
 ## Download
 
@@ -91,7 +91,7 @@ A Bluetooth controller paired with the phone also works. Its buttons are mapped 
 | The Mac app won't open | Use right-click → Open, or the `xattr` command above |
 | Black screen on the phone | Turn on Screen Recording for ScreenBeam in System Settings, then click *Relaunch* |
 | The phone can't control the Mac | Turn on Accessibility for ScreenBeam (setup step 2) |
-| No sound | You need macOS 14.2 or later. Allow audio recording when asked |
+| No sound | Allow audio recording for ScreenBeam when macOS asks (System Settings → Privacy & Security) |
 | The phone doesn't find the Mac | Both devices must be on the same Wi-Fi. Scan the QR code again, or connect manually |
 | Stutter on Wi-Fi | Use 5 GHz Wi-Fi or a USB cable. Lower the bitrate under Advanced |
 

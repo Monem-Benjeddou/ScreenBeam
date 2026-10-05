@@ -222,14 +222,25 @@ final class StreamController {
                 let filter = try await CaptureEngine.makeFilter(displayID: s.displayID)
                 let displayID = (s.displayID == 0 ? CGMainDisplayID() : s.displayID)
                 self.inputQueue.async { self.input.displayID = displayID }
-                let codec = Self.chooseCodec(s.codec, hello, gaming: s.gamingMode)
+                var codec = Self.chooseCodec(s.codec, hello, gaming: s.gamingMode)
                 // Gaming: fit the phone's screen (the encoder is ~4x faster at 1440p than at Retina size).
                 let maxHeight = s.gamingMode && s.maxHeight == 0 ? 1440 : s.maxHeight
-                let (w, h) = Self.outputSize(native: CaptureEngine.nativePixelSize(of: filter),
-                                             hello: hello, codec: codec, maxHeight: maxHeight)
-                let encoder = try VideoEncoder(codec: codec, width: w, height: h, fps: s.fps,
+                let native = CaptureEngine.nativePixelSize(of: filter)
+                var (w, h) = Self.outputSize(native: native, hello: hello, codec: codec, maxHeight: maxHeight)
+                let encoder: VideoEncoder
+                do {
+                    encoder = try VideoEncoder(codec: codec, width: w, height: h, fps: s.fps,
                                                bitrate: s.bitrateMbps * 1_000_000,
                                                flushEachFrame: s.gamingMode)
+                } catch where codec == .hevc && hello.supportsH264 {
+                    // Older Macs (e.g. Intel without an HEVC encoder): every Mac can encode H.264.
+                    Log.write("HEVC encoder unavailable (\(error)), falling back to H.264")
+                    codec = .h264
+                    (w, h) = Self.outputSize(native: native, hello: hello, codec: codec, maxHeight: maxHeight)
+                    encoder = try VideoEncoder(codec: codec, width: w, height: h, fps: s.fps,
+                                               bitrate: s.bitrateMbps * 1_000_000,
+                                               flushEachFrame: s.gamingMode)
+                }
                 Log.write("session: \(hello.deviceName) v\(hello.version) \(w)x\(h) \(codec.name) \(s.fps)fps \(s.bitrateMbps)Mbps gaming=\(s.gamingMode)")
                 encoder.onEncoded = { [weak self] config, frame, isKey in
                     self?.server.send(config: config, frame: frame, isKeyframe: isKey)
