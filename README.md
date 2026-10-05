@@ -7,7 +7,7 @@ Stream your Mac's screen and sound to an Android phone, and use the phone as a m
 - **Control:** trackpad, touch, full keyboard with F-keys and numpad, voice typing, an on-screen gamepad with gyro aiming, and Bluetooth controllers.
 - **Modes:** full video, controller only (no video), or sound only.
 
-Free and open source under the [MIT License](LICENSE). [Watch the 40-second intro video](../../releases/download/v1.0/ScreenBeam-promo.mp4).
+Free and open source under the [MIT License](LICENSE). [Watch the 40-second intro video](../../releases/latest/download/ScreenBeam-promo.mp4).
 
 **Requirements:** macOS 14.2 or later (Apple Silicon or Intel), and Android 8+ (tested on a Galaxy S24 Ultra).
 
