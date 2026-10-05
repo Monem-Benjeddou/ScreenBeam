@@ -7,6 +7,8 @@ Stream your Mac's screen and sound to an Android phone, and use the phone as a m
 - **Control:** trackpad, touch, full keyboard with F-keys and numpad, voice typing, an on-screen gamepad with gyro aiming, and Bluetooth controllers.
 - **Modes:** full video, controller only (no video), or sound only.
 
+Free and open source under the [MIT License](LICENSE). [Watch the 40-second intro video](../../releases/download/v1.0/ScreenBeam-promo.mp4).
+
 **Requirements:** macOS 14+ (Apple Silicon or Intel; Mac sound needs macOS 14.2+), and Android 8+ (tested on a Galaxy S24 Ultra).
 
 ## Download
@@ -125,3 +127,6 @@ python3 tools/test_client.py <mac-ip> 7878 10
 `build-app.sh` signs the app with a certificate named **ScreenBeam Local Signing** if your keychain has one. Otherwise it signs ad hoc.
 
 Create that certificate once in Keychain Access (*Certificate Assistant → Create a Certificate*, type *Code Signing*). With it, macOS keeps the Screen Recording and Accessibility permissions when you rebuild. With an ad-hoc signature, macOS asks for them again after every build.
+
+## License
+ScreenBeam is free and open source under the [MIT License](LICENSE). You can use, change and share it.

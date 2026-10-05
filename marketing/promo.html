@@ -1,0 +1,492 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>ScreenBeam Promo</title>
+<style>
+:root {
+  --bg: #06080C;
+  --blue: #2F6FEB;
+  --blue-deep: #0E1F4F;
+  --cyan: #3FD0F4;
+  --text: #F4F6FA;
+  --muted: #8C96A6;
+  --card: #10141C;
+  --line: #222936;
+  --green: #34C759;
+  --red: #FF453A;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  width: 1920px; height: 1080px; overflow: hidden; background: var(--bg);
+  font-family: -apple-system, "SF Pro Display", system-ui, sans-serif; color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+.abs { position: absolute; }
+.scene { position: absolute; inset: 0; opacity: 0; }
+.h1 { font-size: 128px; font-weight: 800; letter-spacing: -5px; line-height: 1.02; }
+.h2 { font-size: 76px; font-weight: 800; letter-spacing: -2.8px; line-height: 1.05; }
+.sub { font-size: 32px; color: var(--muted); font-weight: 500; letter-spacing: -0.4px; }
+.grad { background: linear-gradient(90deg, #4C8DFF, var(--cyan)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.center { left: 0; right: 0; text-align: center; }
+.word { display: inline-block; will-change: transform, opacity; }
+
+/* Mac laptop */
+.mac { width: 700px; }
+.mac .lid { width: 700px; height: 440px; background: #1A1D24; border-radius: 26px 26px 8px 8px; padding: 16px; border: 2px solid #2C313B; }
+.mac .screen { width: 100%; height: 100%; border-radius: 8px; overflow: hidden; position: relative; background: #000; }
+.mac .base { width: 840px; height: 24px; margin-left: -70px; background: linear-gradient(#C9CDD4, #7D838D); border-radius: 2px 2px 20px 20px; }
+.mac .notch { position: absolute; left: 50%; top: 0; width: 110px; height: 8px; margin-left: -55px; background: #9AA0A9; border-radius: 0 0 8px 8px; }
+
+/* Phone (landscape) */
+.phone { background: #050505; border: 3px solid #2B2F37; border-radius: 64px; padding: 16px; box-shadow: 0 40px 120px rgba(47,111,235,0.25); }
+.phone .screen { width: 100%; height: 100%; border-radius: 48px; overflow: hidden; position: relative; background: #000; }
+.phone .cam { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #111; border: 2px solid #222; z-index: 5; }
+
+/* Desktop mock (fixed 668x408, scaled where needed) */
+.desk { position: absolute; width: 668px; height: 408px; left: 0; top: 0; transform-origin: 0 0; overflow: hidden;
+  background: radial-gradient(circle at 20% 20%, #3B6CF0 0%, transparent 55%), radial-gradient(circle at 85% 80%, #8E3BD8 0%, transparent 55%), linear-gradient(135deg, #172554, #3B1A5E); }
+.desk .menubar { position: absolute; left: 0; right: 0; top: 0; height: 18px; background: rgba(10,12,20,0.45); }
+.desk .win { position: absolute; background: rgba(22,26,36,0.92); border-radius: 10px; border: 1px solid rgba(255,255,255,0.08); overflow: hidden; }
+.desk .bar { height: 22px; display: flex; gap: 6px; align-items: center; padding-left: 10px; background: rgba(255,255,255,0.04); }
+.desk .dot { width: 9px; height: 9px; border-radius: 50%; }
+.desk .ln { height: 7px; border-radius: 4px; margin: 9px 14px 0; }
+.desk .dock { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); height: 40px; padding: 6px 10px; display: flex; gap: 8px; background: rgba(255,255,255,0.14); border-radius: 14px; }
+.desk .app { width: 28px; height: 28px; border-radius: 8px; }
+.cursor { position: absolute; width: 18px; height: 26px; z-index: 20; }
+
+/* Game scene (fills its container) */
+.game { position: absolute; inset: 0; overflow: hidden; background: linear-gradient(#1B1446 0%, #6A2C70 38%, #F07B3F 58%, #FFD07A 64%); }
+.game .sun { position: absolute; width: 18%; aspect-ratio: 1; left: 41%; top: 30%; border-radius: 50%; background: radial-gradient(#FFF2C2, #FFB35C 60%, rgba(255,140,60,0) 72%); }
+.game .bld { position: absolute; bottom: 36%; background: #140F2B; }
+.game .bld.far { background: #2A1B4A; }
+.game .ground { position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: linear-gradient(#18122E, #0B0817); }
+.game .road { position: absolute; left: 0; right: 0; bottom: 0; height: 36%; background: #23202E; clip-path: polygon(46% 0, 54% 0, 100% 100%, 0 100%); }
+.game .stripe { position: absolute; left: 49.4%; width: 1.2%; bottom: 0; height: 36%; clip-path: polygon(45% 0, 55% 0, 100% 100%, 0 100%);
+  background: repeating-linear-gradient(to bottom, #FFE38A 0 26px, transparent 26px 64px); }
+.game .cross { position: absolute; left: 50%; top: 46%; width: 34px; height: 34px; margin: -17px; }
+.game .cross:before, .game .cross:after { content: ""; position: absolute; background: rgba(255,255,255,0.9); }
+.game .cross:before { left: 16px; top: 0; width: 2px; height: 34px; }
+.game .cross:after { top: 16px; left: 0; height: 2px; width: 34px; }
+
+/* Gamepad overlay */
+.pad .btn { position: absolute; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; color: rgba(255,255,255,0.9); letter-spacing: 0.5px; }
+.chipbar { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; align-items: center; }
+.chip { padding: 8px 18px; border-radius: 999px; background: rgba(0,0,0,0.38); font-size: 19px; font-weight: 600; color: rgba(255,255,255,0.75); border: 1px solid rgba(255,255,255,0.12); }
+.chip.on { background: rgba(47,111,235,0.75); color: #fff; border-color: rgba(255,255,255,0.3); }
+
+/* Cards */
+.card { position: absolute; width: 380px; height: 400px; background: var(--card); border: 2px solid var(--line); border-radius: 36px; padding: 44px 36px; }
+.card .ic { font-size: 92px; line-height: 1; }
+.card .t { font-size: 50px; font-weight: 800; letter-spacing: -1.5px; margin-top: 34px; }
+.card .d { font-size: 25px; color: var(--muted); margin-top: 12px; line-height: 1.35; font-weight: 500; }
+
+.pill { display: inline-flex; align-items: center; gap: 16px; padding: 18px 34px; border-radius: 999px; background: #10141C; border: 2px solid #283041; font-size: 34px; font-weight: 600; }
+.stat { display: inline-block; padding: 12px 26px; border-radius: 999px; background: rgba(47,111,235,0.14); border: 1.5px solid rgba(76,141,255,0.45); color: #CFE0FF; font-size: 26px; font-weight: 600; margin: 0 8px; }
+
+/* Setup scene */
+.mwin { position: absolute; background: #161A22; border: 2px solid #2A303C; border-radius: 22px; overflow: hidden; }
+.mwin .tb { height: 44px; display: flex; gap: 10px; align-items: center; padding-left: 18px; background: #1C212B; }
+.check { display: flex; gap: 18px; align-items: center; font-size: 27px; font-weight: 600; margin-bottom: 26px; }
+.check .c { width: 40px; height: 40px; border-radius: 50%; border: 3px solid #4A5262; display: flex; align-items: center; justify-content: center; font-size: 24px; color: #fff; font-weight: 800; }
+.qr { position: absolute; background: #fff; border-radius: 14px; padding: 14px; }
+.qr .m { position: absolute; background: #0B0D12; }
+.pphone { position: absolute; background: #050505; border: 3px solid #2B2F37; border-radius: 54px; padding: 13px; }
+.pphone .screen { width: 100%; height: 100%; border-radius: 42px; overflow: hidden; position: relative; background: #0F1116; }
+</style>
+</head>
+<body>
+<div id="bg" class="abs" style="inset:0"></div>
+
+<!-- S1: hook -->
+<div class="scene" id="s1">
+  <div class="abs center h1" style="top:330px"><span class="word" id="s1a">Your</span> <span class="word" id="s1b">Mac.</span></div>
+  <div class="abs center h1" style="top:480px"><span class="word grad" id="s1c">In</span> <span class="word grad" id="s1d">your</span> <span class="word grad" id="s1e">hand.</span></div>
+</div>
+
+<!-- S2: logo -->
+<div class="scene" id="s2">
+  <img id="logo" class="abs" src="icon.png" style="width:260px;height:260px;left:830px;top:230px">
+  <div id="wordmark" class="abs center" style="top:520px;font-size:140px;font-weight:800;letter-spacing:-5px"></div>
+  <div id="s2tag" class="abs center sub" style="top:715px;font-size:38px">Your Mac's screen, sound and controls, on Android.</div>
+</div>
+
+<!-- S3: streaming -->
+<div class="scene" id="s3">
+  <div class="abs center h2" style="top:96px" id="s3t">Your screen, live.</div>
+  <div class="abs center sub" style="top:196px" id="s3s">Hardware-encoded at 60 fps. Frames leave your Mac in about 15 ms.</div>
+  <div class="abs mac" id="mac3" style="left:110px;top:360px">
+    <div class="lid"><div class="screen" id="mac3screen"><div class="notch"></div></div></div>
+    <div class="base"></div>
+  </div>
+  <div class="abs phone" id="phone3" style="left:990px;top:420px;width:830px;height:400px">
+    <div class="screen" id="phone3screen"></div>
+  </div>
+  <div id="beam" class="abs" style="inset:0;pointer-events:none"></div>
+  <div class="abs center" style="top:900px" id="s3stats">
+    <span class="stat">60 fps</span><span class="stat">~15 ms encode</span><span class="stat">HEVC · H.264</span><span class="stat">Wi-Fi or USB-C</span>
+  </div>
+</div>
+
+<!-- S4: gaming -->
+<div class="scene" id="s4">
+  <div class="abs center h2" style="top:70px" id="s4t">Play from your phone.</div>
+  <div class="abs center sub" style="top:166px" id="s4s">On-screen gamepad · Gyro aim · Bluetooth controllers · Your own layout</div>
+  <div class="abs phone" id="phone4" style="left:210px;top:270px;width:1500px;height:700px">
+    <div class="screen" id="phone4screen"></div>
+  </div>
+</div>
+
+<!-- S5: sound -->
+<div class="scene" id="s5">
+  <div class="abs center h2" style="top:150px" id="s5t">Sound on both. <span class="grad">In sync.</span></div>
+  <div class="abs center sub" style="top:252px" id="s5s">Hear your Mac on your phone, with the Mac's own speakers kept in time.</div>
+  <div id="eq" class="abs" style="left:560px;top:470px;width:800px;height:260px"></div>
+  <div id="rings" class="abs" style="inset:0"></div>
+  <div class="abs" id="s5mac" style="left:230px;top:500px;width:240px;height:200px">
+    <div style="width:240px;height:150px;background:#1A1D24;border:2px solid #2C313B;border-radius:14px 14px 4px 4px;padding:9px"><div style="width:100%;height:100%;border-radius:4px;background:linear-gradient(135deg,#172554,#3B1A5E)"></div></div>
+    <div style="width:290px;height:12px;margin-left:-25px;background:linear-gradient(#C9CDD4,#7D838D);border-radius:2px 2px 10px 10px"></div>
+    <div class="sub" style="text-align:center;margin-top:22px;font-size:26px">Mac</div>
+  </div>
+  <div class="abs" id="s5ph" style="left:1500px;top:470px;width:170px;height:300px">
+    <div style="width:130px;height:250px;margin:0 auto;background:#050505;border:3px solid #2B2F37;border-radius:26px;padding:7px"><div style="width:100%;height:100%;border-radius:19px;background:linear-gradient(160deg,#1B2E6B,#0B1230);display:flex;align-items:center;justify-content:center;font-size:44px">🔊</div></div>
+    <div class="sub" style="text-align:center;margin-top:16px;font-size:26px">Phone</div>
+  </div>
+</div>
+
+<!-- S6: goals -->
+<div class="scene" id="s6">
+  <div class="abs center h2" style="top:130px" id="s6t">Pick what you want to do.</div>
+  <div class="card" id="c0" style="left:120px;top:380px"><div class="ic">👁</div><div class="t">Watch</div><div class="d">Your screen, sharp and live. Pinch to zoom.</div></div>
+  <div class="card" id="c1" style="left:560px;top:380px"><div class="ic">🖱</div><div class="t">Control</div><div class="d">Trackpad, full keyboard and voice typing.</div></div>
+  <div class="card" id="c2" style="left:1000px;top:380px"><div class="ic">🎮</div><div class="t">Play</div><div class="d">Gamepad, gyro aim, or phone-as-controller.</div></div>
+  <div class="card" id="c3" style="left:1440px;top:380px"><div class="ic">🔊</div><div class="t">Listen</div><div class="d">Just the sound. Easy on the battery.</div></div>
+</div>
+
+<!-- S7: setup -->
+<div class="scene" id="s7">
+  <div class="abs" style="left:120px;top:150px;width:760px" id="s7text">
+    <div class="h2">Set up in<br>a minute.</div>
+    <div class="sub" style="margin-top:28px;line-height:1.4">Scan the QR code once.<br>Then it connects by itself,<br>over Wi-Fi or a USB-C cable.</div>
+  </div>
+  <div class="mwin" id="mwin" style="left:860px;top:250px;width:620px;height:600px">
+    <div class="tb"><div class="dot" style="width:14px;height:14px;border-radius:50%;background:#FF5F57"></div><div style="width:14px;height:14px;border-radius:50%;background:#FEBC2E"></div><div style="width:14px;height:14px;border-radius:50%;background:#28C840"></div></div>
+    <div style="padding:34px 36px">
+      <div style="font-size:30px;font-weight:800;margin-bottom:30px">Set up ScreenBeam</div>
+      <div class="check"><div class="c" id="k0">1</div>Let ScreenBeam see your screen</div>
+      <div class="check"><div class="c" id="k1">2</div>Let your phone control this Mac</div>
+      <div class="check"><div class="c" id="k2">3</div>Pair your phone</div>
+    </div>
+    <div class="qr" id="qr" style="left:36px;top:370px;width:200px;height:200px"></div>
+    <div class="abs" style="left:270px;top:390px;width:310px;font-size:24px;color:var(--muted);line-height:1.4">In the phone app, tap <b style="color:#fff">Scan QR code</b> and point it here.</div>
+  </div>
+  <div class="pphone" id="pph" style="left:1540px;top:300px;width:270px;height:540px">
+    <div class="screen" id="pphscreen">
+      <div class="abs" id="viewfinder" style="inset:0;background:radial-gradient(#2A2F3A,#0C0E13)"></div>
+      <div class="abs" id="vfqr" style="left:55px;top:150px;width:135px;height:135px;background:#fff;border-radius:8px"></div>
+      <div class="abs" id="scanline" style="left:40px;width:164px;height:3px;background:#3FD0F4;box-shadow:0 0 18px #3FD0F4"></div>
+      <div class="abs" style="left:40px;top:135px;width:164px;height:164px;border:3px solid rgba(255,255,255,0.85);border-radius:16px"></div>
+      <div class="abs" id="connected" style="inset:0;background:#0F1116;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px">
+        <div style="width:86px;height:86px;border-radius:50%;background:var(--green);display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:800">✓</div>
+        <div style="font-size:24px;font-weight:700">Connected</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S8: end card -->
+<div class="scene" id="s8">
+  <img id="logo8" class="abs" src="icon.png" style="width:170px;height:170px;left:875px;top:140px">
+  <div class="abs center" id="s8name" style="top:320px;font-size:64px;font-weight:800;letter-spacing:-2px">ScreenBeam</div>
+  <div class="abs center h1" id="s8free" style="top:430px"><span class="grad">Free &amp; open source.</span></div>
+  <div class="abs center" id="s8pill" style="top:640px">
+    <div class="pill">
+      <svg width="40" height="40" viewBox="0 0 16 16" fill="#fff"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      github.com/Monem-Benjeddou/ScreenBeam
+    </div>
+  </div>
+  <div class="abs center sub" id="s8plat" style="top:790px">macOS 14+ &nbsp;·&nbsp; Android 8+ &nbsp;·&nbsp; Wi-Fi or USB-C</div>
+</div>
+
+<div id="black" class="abs" style="inset:0;background:#000;opacity:0;pointer-events:none"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const p = (t, a, b) => clamp((t - a) / (b - a));
+const eo = x => 1 - Math.pow(1 - x, 3);
+const eio = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const back = x => { const c1 = 1.6, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+function reveal(el, t, start, dy = 50, dur = 0.7) {
+  const k = eo(p(t, start, start + dur));
+  el.style.opacity = k;
+  el.style.transform = `translateY(${(1 - k) * dy}px)`;
+}
+function sceneAlpha(t, a, b, f = 0.45) {
+  return Math.min(a <= 0 ? 1 : p(t, a, a + f), b >= 99 ? 1 : 1 - p(t, b - f, b));
+}
+const el = (tag, cls, style, parent) => { const e = document.createElement(tag); if (cls) e.className = cls; if (style) e.style.cssText = style; if (parent) parent.appendChild(e); return e; };
+
+// ---------- builders ----------
+function makeDesktop(parent) {
+  const d = el('div', 'desk', '', parent);
+  el('div', 'menubar', '', d);
+  const w1 = el('div', 'win', 'left:40px;top:42px;width:330px;height:250px', d);
+  const b1 = el('div', 'bar', '', w1);
+  ['#FF5F57', '#FEBC2E', '#28C840'].forEach(c => el('div', 'dot', `background:${c}`, b1));
+  const cols = ['#7AA2FF', '#C792EA', '#89DDFF', '#F78C6C', '#C3E88D'];
+  for (let i = 0; i < 13; i++) el('div', 'ln', `width:${30 + rnd() * 60}%;background:${cols[i % 5]};opacity:.75;margin-left:${14 + (i % 3) * 16}px`, w1);
+  const w2 = el('div', 'win', 'left:300px;top:110px;width:330px;height:210px', d);
+  const b2 = el('div', 'bar', '', w2);
+  ['#FF5F57', '#FEBC2E', '#28C840'].forEach(c => el('div', 'dot', `background:${c}`, b2));
+  const vid = el('div', '', 'position:absolute;left:0;right:0;top:22px;bottom:0;background:linear-gradient(135deg,#F07B3F,#6A2C70);display:flex;align-items:center;justify-content:center', w2);
+  el('div', '', 'width:0;height:0;border-left:34px solid rgba(255,255,255,.9);border-top:20px solid transparent;border-bottom:20px solid transparent;margin-left:8px', vid);
+  const prog = el('div', '', 'position:absolute;left:12px;right:12px;bottom:12px;height:5px;background:rgba(255,255,255,.3);border-radius:3px', vid);
+  const fill = el('div', '', 'height:100%;width:0;background:#fff;border-radius:3px', prog);
+  const dock = el('div', 'dock', '', d);
+  ['#3B82F6', '#F59E0B', '#10B981', '#EF4444', '#8B5CF6', '#EC4899'].forEach(c => el('div', 'app', `background:${c}`, dock));
+  const cur = el('div', 'cursor', '', d);
+  cur.innerHTML = '<svg width="18" height="26" viewBox="0 0 18 26"><path d="M1 1 L1 21 L6 16 L10 25 L13 24 L9 15 L16 15 Z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+  return { d, cur, fill, w2 };
+}
+
+function makeGame(parent) {
+  const g = el('div', 'game', '', parent);
+  el('div', 'sun', '', g);
+  seed = 5;
+  for (let i = 0; i < 22; i++) {
+    const w = 3 + rnd() * 4, h = 10 + rnd() * 18;
+    el('div', 'bld far', `left:${i * 4.8 - 2}%;width:${w}%;height:${h}%`, g);
+  }
+  for (let i = 0; i < 16; i++) {
+    const w = 4 + rnd() * 5, h = 6 + rnd() * 26;
+    const x = i * 6.6 - 3;
+    if (x > 40 && x < 56) continue;
+    const b = el('div', 'bld', `left:${x}%;width:${w}%;height:${h}%`, g);
+    for (let k = 0; k < 6; k++) if (rnd() > 0.4) el('div', '', `position:absolute;left:${15 + rnd() * 60}%;top:${10 + rnd() * 70}%;width:10%;height:4%;background:#FFC870;opacity:.7`, b);
+  }
+  el('div', 'ground', '', g);
+  el('div', 'road', '', g);
+  const stripe = el('div', 'stripe', '', g);
+  const cross = el('div', 'cross', '', g);
+  return { g, stripe, cross };
+}
+
+function makePad(parent) {
+  const pd = el('div', 'pad', 'position:absolute;inset:0', parent);
+  const bar = el('div', 'chipbar', '', pd);
+  const dot = el('div', '', 'width:16px;height:16px;border-radius:50%;background:#34C759;box-shadow:0 0 12px #34C759;margin-right:6px', bar);
+  [['👁 Watch', 0], ['🖱 Control', 0], ['🎮 Play', 1], ['🔊 Listen', 0]].forEach(([s, on]) => el('div', 'chip' + (on ? ' on' : ''), '', bar).textContent = s);
+  const base = el('div', 'btn', 'left:110px;bottom:80px;width:230px;height:230px;background:rgba(255,255,255,.10);border:2px solid rgba(255,255,255,.32)', pd);
+  const thumb = el('div', 'btn', 'left:177px;bottom:147px;width:96px;height:96px;background:rgba(255,255,255,.55)', pd);
+  const fire = el('div', 'btn', 'right:110px;bottom:90px;width:160px;height:160px;background:rgba(255,69,58,.55);border:2px solid rgba(255,255,255,.35);font-size:28px', pd); fire.textContent = 'FIRE';
+  const aim = el('div', 'btn', 'right:300px;bottom:70px;width:120px;height:120px;background:rgba(255,255,255,.16);border:2px solid rgba(255,255,255,.3);font-size:22px', pd); aim.textContent = 'AIM';
+  [['JUMP', 'right:110px;bottom:280px'], ['SPRINT', 'right:240px;bottom:240px'], ['RELOAD', 'right:330px;bottom:205px']].forEach(([s, pos]) => {
+    const b = el('div', 'btn', pos + ';width:92px;height:92px;background:rgba(255,255,255,.14);border:2px solid rgba(255,255,255,.28);font-size:15px', pd); b.textContent = s;
+  });
+  const touch = el('div', '', 'position:absolute;width:70px;height:70px;border-radius:50%;background:rgba(255,255,255,.25);border:2px solid rgba(255,255,255,.6)', pd);
+  const gyro = el('div', '', 'position:absolute;left:24px;top:24px;padding:8px 16px;border-radius:999px;background:rgba(47,111,235,.7);font-size:18px;font-weight:700', pd);
+  gyro.textContent = '◎ Gyro aim on';
+  return { thumb, fire, touch, gyro };
+}
+
+function makeQR(parent, size, inner) {
+  seed = 99;
+  const n = 25, cell = inner / n;
+  const finder = (x, y) => (x < 7 && y < 7) || (x >= n - 7 && y < 7) || (x < 7 && y >= n - 7);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    let on;
+    if (finder(x, y)) {
+      const fx = x < 7 ? x : x - (n - 7), fy = y < 7 ? y : y - (n - 7);
+      on = fx === 0 || fx === 6 || fy === 0 || fy === 6 || (fx >= 2 && fx <= 4 && fy >= 2 && fy <= 4);
+    } else on = rnd() > 0.52;
+    if (on) el('div', 'm', `left:${size + x * cell}px;top:${size + y * cell}px;width:${cell + 0.5}px;height:${cell + 0.5}px`, parent);
+  }
+}
+
+// ---------- build ----------
+seed = 11;
+const D3 = makeDesktop($('mac3screen'));
+const ph3 = $('phone3screen');
+seed = 11;
+const D3p = makeDesktop(ph3);
+const phoneScale = 362 / 408;
+D3p.d.style.transform = `scale(${phoneScale})`;
+D3p.d.style.left = `${(792 - 668 * phoneScale) / 2}px`;
+el('div', 'cam', 'left:10px;top:173px', $('phone3').firstElementChild);
+
+const beamDots = [];
+for (let i = 0; i < 18; i++) beamDots.push(el('div', '', 'position:absolute;width:10px;height:10px;border-radius:50%;background:#7FD8FF;box-shadow:0 0 16px 4px rgba(63,208,244,.7)', $('beam')));
+
+const G4 = makeGame($('phone4screen'));
+const P4 = makePad($('phone4screen'));
+
+const eqBars = [];
+for (let i = 0; i < 40; i++) eqBars.push(el('div', '', `position:absolute;left:${i * 20}px;width:12px;border-radius:6px;background:linear-gradient(#3FD0F4,#2F6FEB)`, $('eq')));
+const rings = [];
+for (let i = 0; i < 6; i++) rings.push(el('div', '', 'position:absolute;border-radius:50%;border:3px solid #3FD0F4', $('rings')));
+
+makeQR($('qr'), 14, 172);
+makeQR($('vfqr'), 8, 119);
+
+// wordmark letters
+'ScreenBeam'.split('').forEach(ch => { const s = el('span', 'word', '', $('wordmark')); s.textContent = ch; });
+
+// ---------- timeline ----------
+const S = { s1: [0, 4.15], s2: [3.95, 8.2], s3: [8.0, 14.2], s4: [14.0, 20.2], s5: [20.0, 24.2], s6: [24.0, 30.2], s7: [30.0, 34.2], s8: [34.0, 99] };
+
+function render(t) {
+  // background glow drift
+  const gx = 50 + 18 * Math.sin(t * 0.25), gy = 40 + 10 * Math.cos(t * 0.31);
+  $('bg').style.background = `radial-gradient(900px 600px at ${gx}% ${gy}%, rgba(47,111,235,0.20), transparent 70%), radial-gradient(700px 500px at ${100 - gx}% ${100 - gy}%, rgba(63,208,244,0.08), transparent 70%)`;
+
+  for (const [id, [a, b]] of Object.entries(S)) {
+    const al = sceneAlpha(t, a, b);
+    $(id).style.opacity = al;
+    $(id).style.display = al > 0 ? 'block' : 'none';
+  }
+
+  // S1
+  if (t < 4.3) {
+    ['s1a', 's1b'].forEach((id, i) => reveal($(id), t, 0.25 + i * 0.25, 70));
+    ['s1c', 's1d', 's1e'].forEach((id, i) => reveal($(id), t, 1.25 + i * 0.22, 70));
+    const z = 1 + 0.03 * p(t, 0, 4);
+    $('s1').style.transform = `scale(${z})`;
+  }
+
+  // S2
+  if (t > 3.8 && t < 8.4) {
+    const k = back(p(t, 4.0, 4.7));
+    $('logo').style.transform = `scale(${0.4 + 0.6 * k}) rotate(${(1 - eo(p(t, 4, 4.8))) * -12}deg)`;
+    $('logo').style.opacity = p(t, 4.0, 4.3);
+    [...$('wordmark').children].forEach((s, i) => reveal(s, t, 4.5 + i * 0.05, 60, 0.5));
+    reveal($('s2tag'), t, 5.4, 30);
+    $('s2').style.transform = `scale(${1 + 0.025 * p(t, 4, 8.2)})`;
+  }
+
+  // S3
+  if (t > 7.8 && t < 14.4) {
+    reveal($('s3t'), t, 8.2); reveal($('s3s'), t, 8.45, 30);
+    reveal($('mac3'), t, 8.3, 80, 0.9);
+    reveal($('phone3'), t, 8.6, 80, 0.9);
+    [...$('s3stats').children].forEach((s, i) => { const k = back(p(t, 10.2 + i * 0.25, 10.7 + i * 0.25)); s.style.opacity = p(t, 10.2 + i * 0.25, 10.4 + i * 0.25); s.style.transform = `scale(${0.6 + 0.4 * k})`; s.style.display = 'inline-block'; });
+    const on = p(t, 9.2, 9.6);
+    D3p.d.style.opacity = on;
+    // cursor path and video progress, mirrored
+    const lt = t - 8;
+    const cx = 330 + 200 * Math.sin(lt * 0.9), cy = 200 + 90 * Math.sin(lt * 1.4 + 1);
+    [D3, D3p].forEach(D => {
+      D.cur.style.left = cx + 'px'; D.cur.style.top = cy + 'px';
+      D.fill.style.width = (20 + lt * 9) + '%';
+      D.w2.style.transform = `translate(${-30 * eio(p(t, 11.5, 12.5)) + 30 * eio(p(t, 13, 13.8))}px, ${-20 * eio(p(t, 11.5, 12.5))}px)`;
+    });
+    // beam particles from Mac screen edge to phone screen
+    const x0 = 790, y0 = 580, x1 = 1010, y1 = 620;
+    beamDots.forEach((dt, i) => {
+      const f = ((t * 0.9 + i / beamDots.length) % 1);
+      const x = x0 + (x1 - x0) * f, y = y0 + (y1 - y0) * f - Math.sin(f * Math.PI) * 60 + Math.sin(i * 7.1) * 16;
+      dt.style.left = x + 'px'; dt.style.top = y + 'px';
+      dt.style.opacity = Math.sin(f * Math.PI) * p(t, 8.9, 9.4);
+    });
+  }
+
+  // S4
+  if (t > 13.8 && t < 20.4) {
+    reveal($('s4t'), t, 14.2); reveal($('s4s'), t, 14.45, 30);
+    const k = eo(p(t, 14.1, 15.0));
+    const tilt = Math.sin((t - 14) * 1.3) * 4 * p(t, 15.5, 16.5);
+    $('phone4').style.opacity = p(t, 14.1, 14.5);
+    $('phone4').style.transform = `perspective(2000px) translateY(${(1 - k) * 120}px) scale(${0.92 + 0.08 * k}) rotateZ(${tilt * 0.5}deg) rotateY(${tilt}deg)`;
+    G4.stripe.style.backgroundPositionY = `${(t * 260) % 64}px`;
+    const lt = t - 14;
+    const sx = Math.cos(lt * 2.2) * 50, sy = Math.sin(lt * 1.7) * 50;
+    P4.thumb.style.transform = `translate(${sx}px, ${sy}px)`;
+    const beat = (t % 0.5) / 0.5;
+    const firing = t > 16.5 && t < 19;
+    P4.fire.style.transform = `scale(${firing ? 1 - 0.12 * Math.exp(-beat * 6) : 1})`;
+    P4.fire.style.background = firing && beat < 0.25 ? 'rgba(255,69,58,.85)' : 'rgba(255,69,58,.55)';
+    const tx = 980 + Math.sin(lt * 1.1) * 120, ty = 230 + Math.cos(lt * 1.6) * 60;
+    P4.touch.style.left = tx + 'px'; P4.touch.style.top = ty + 'px';
+    P4.touch.style.opacity = t < 16.3 ? p(t, 15.0, 15.3) : 1 - p(t, 16.3, 16.5);
+    P4.gyro.style.opacity = p(t, 16.4, 16.7);
+    const ax = Math.sin(lt * 1.1) * 60 + tilt * 14, ay = Math.cos(lt * 1.6) * 30;
+    G4.cross.style.transform = `translate(${ax}px, ${ay}px)`;
+    G4.g.style.transform = `translate(${-ax * 0.4}px, ${-ay * 0.3}px) scale(1.08)`;
+  }
+
+  // S5
+  if (t > 19.8 && t < 24.4) {
+    reveal($('s5t'), t, 20.2); reveal($('s5s'), t, 20.45, 30);
+    reveal($('s5mac'), t, 20.3, 50); reveal($('s5ph'), t, 20.5, 50);
+    const lt = t - 20;
+    const env = p(t, 20.6, 21.2);
+    eqBars.forEach((b, i) => {
+      const beat = Math.exp(-((t % 0.5) / 0.5) * 4);
+      const h = 20 + env * (60 + 70 * Math.abs(Math.sin(i * 0.37 + lt * 3.1)) * (0.6 + 0.4 * Math.sin(i * 0.11 - lt * 1.7)) + 60 * beat * Math.exp(-Math.pow((i - 20) / 9, 2)));
+      b.style.height = h + 'px'; b.style.top = (130 - h / 2) + 'px';
+    });
+    rings.forEach((r, i) => {
+      const side = i % 2, f = ((lt * 0.8 + Math.floor(i / 2) / 3) % 1);
+      const cx = side ? 1585 : 350, cy = side ? 595 : 575;
+      const R = 80 + f * 220;
+      r.style.width = r.style.height = R * 2 + 'px';
+      r.style.left = (cx - R) + 'px'; r.style.top = (cy - R) + 'px';
+      r.style.opacity = (1 - f) * 0.5 * env;
+    });
+  }
+
+  // S6
+  if (t > 23.8 && t < 30.4) {
+    reveal($('s6t'), t, 24.2);
+    for (let i = 0; i < 4; i++) {
+      const c = $('c' + i), st = 24.7 + i * 0.5;
+      const k = back(p(t, st, st + 0.55));
+      c.style.opacity = p(t, st, st + 0.2);
+      c.style.transform = `translateY(${(1 - k) * 80}px) scale(${0.85 + 0.15 * k})`;
+      const hi = t > 27.0 ? Math.floor((t - 27.0) / 0.75) % 4 === i : false;
+      c.style.borderColor = hi ? '#4C8DFF' : 'var(--line)';
+      c.style.boxShadow = hi ? '0 0 60px rgba(47,111,235,.45)' : 'none';
+      c.style.background = hi ? '#131B2E' : 'var(--card)';
+    }
+  }
+
+  // S7
+  if (t > 29.8 && t < 34.4) {
+    reveal($('s7text'), t, 30.2, 50);
+    reveal($('mwin'), t, 30.3, 70, 0.8);
+    reveal($('pph'), t, 30.6, 90, 0.8);
+    [31.0, 31.5, 33.0].forEach((ts, i) => {
+      const k = $('k' + i), on = t > ts;
+      k.textContent = on ? '✓' : String(i + 1);
+      k.style.background = on ? 'var(--green)' : 'transparent';
+      k.style.borderColor = on ? 'var(--green)' : '#4A5262';
+      k.style.transform = `scale(${on ? 1 + 0.25 * Math.exp(-(t - ts) * 8) : 1})`;
+    });
+    const sl = (t * 1.6) % 1;
+    $('scanline').style.top = (140 + sl * 155) + 'px';
+    $('connected').style.opacity = p(t, 32.6, 32.9);
+    $('connected').firstElementChild.style.transform = `scale(${0.5 + 0.5 * back(p(t, 32.6, 33.1))})`;
+  }
+
+  // S8
+  if (t > 33.8) {
+    const k = back(p(t, 34.1, 34.7));
+    $('logo8').style.opacity = p(t, 34.1, 34.3);
+    $('logo8').style.transform = `scale(${0.5 + 0.5 * k})`;
+    reveal($('s8name'), t, 34.4, 30);
+    reveal($('s8free'), t, 34.8, 70, 0.8);
+    reveal($('s8pill'), t, 35.6, 40);
+    reveal($('s8plat'), t, 36.0, 30);
+    $('s8').style.transform = `scale(${1 + 0.02 * p(t, 34, 42)})`;
+  }
+
+  $('black').style.opacity = p(t, 41.0, 41.9);
+}
+
+window.ready = false;
+Promise.all([...document.images].map(i => i.complete ? 1 : new Promise(r => i.onload = r))).then(() => { render(0); window.ready = true; });
+</script>
+</body>
+</html>
