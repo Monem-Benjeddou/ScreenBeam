@@ -2,12 +2,19 @@
 
 Stream your Mac's screen and sound to an Android phone, and use the phone as a mouse, keyboard or game controller. Works over Wi-Fi or a USB-C cable.
 
+![ScreenBeam streaming a Mac screen to an Android phone](docs/screenshots/stream.jpg)
+
 - **Sharp and fast:** hardware HEVC/H.264 encoding, about 10–15 ms from capture to send in gaming mode.
 - **Sound:** Mac audio plays on the phone. It can also keep playing on the Mac, delayed to stay in sync with the phone.
 - **Control:** trackpad, touch, full keyboard with F-keys and numpad, voice typing, an on-screen gamepad with gyro aiming, and Bluetooth controllers.
 - **Modes:** full video, controller only (no video), or sound only.
 
 Free and open source under the [MIT License](LICENSE). [Watch the 40-second intro video](../../releases/latest/download/ScreenBeam-promo.mp4).
+
+| | |
+|---|---|
+| ![On-screen gamepad with gyro aim](docs/screenshots/gaming.jpg) | ![Sound on both devices, in sync](docs/screenshots/sound.jpg) |
+| ![Watch, Control, Play and Listen modes](docs/screenshots/modes.jpg) | ![Setup checklist and QR pairing](docs/screenshots/setup.jpg) |
 
 **Requirements:** macOS 14.2 or later (Apple Silicon or Intel), and Android 8+ (tested on a Galaxy S24 Ultra).
 
