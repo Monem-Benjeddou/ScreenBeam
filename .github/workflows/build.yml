@@ -55,7 +55,7 @@ jobs:
           APKSIGNER="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner"
           "$APKSIGNER" verify --print-certs ScreenBeam.apk | head -3
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: android
           path: ScreenBeam.apk
@@ -97,7 +97,7 @@ jobs:
           codesign -dvv build/ScreenBeam.app 2>&1 | grep -E "Format|Authority" || true
           ditto -c -k --keepParent build/ScreenBeam.app ../ScreenBeam-mac.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: mac
           path: ScreenBeam-mac.zip
