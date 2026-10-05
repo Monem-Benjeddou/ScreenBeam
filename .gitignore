@@ -1,0 +1,14 @@
+.DS_Store
+# Builds (published as GitHub Release assets instead)
+dist/
+mac/.build/
+mac/build/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+*.keystore
+*.jks
+__pycache__/
