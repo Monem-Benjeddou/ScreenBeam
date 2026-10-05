@@ -374,6 +374,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         connect(match)
     }
 
+    /**
+     * Fresh process, same as swiping the app away and reopening it; it then reconnects to the last Mac
+     * by itself. At most once every 2 minutes, so a Mac that really is broken can't cause a restart loop.
+     */
+    private fun restartApp() {
+        val now = System.currentTimeMillis()
+        if (now - prefs.getLong("last_self_restart", 0) < 120_000) {
+            target = null
+            stopClient()
+            showPicker("Your Mac stopped answering. Restart ScreenBeam on the Mac, then try again.")
+            return
+        }
+        prefs.edit().putLong("last_self_restart", now).commit()
+        val intent = packageManager.getLaunchIntentForPackage(packageName)!!
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        startActivity(intent)
+        Runtime.getRuntime().exit(0)
+    }
+
     private fun deviceName(): String =
         Settings.Global.getString(contentResolver, "device_name")?.takeIf { it.isNotBlank() } ?: Build.MODEL
 
@@ -414,6 +433,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             stopClient()
             showPicker(message)
         }
+
+        override fun onStuck() = onUi { restartApp() }
 
         override fun onPairingRequired(message: String) = onUi {
             val host = target ?: return@onUi

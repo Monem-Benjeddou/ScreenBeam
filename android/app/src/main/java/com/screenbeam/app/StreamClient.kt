@@ -46,6 +46,8 @@ class StreamClient(
         fun onStopped(message: String)
         /** The Mac wants a (correct) pairing code before it will stream. */
         fun onPairingRequired(message: String)
+        /** Several connections in a row got no reply at all: the app should restart itself. */
+        fun onStuck() {}
     }
 
     data class Stats(
@@ -71,9 +73,13 @@ class StreamClient(
         thread.interrupt()
     }
 
+    /** Messages received in the current session by type, for the end-of-session log line. */
+    private val received = IntArray(32)
+
     private fun run() {
         var attempt = 0
         var lastError: String? = null
+        var silentSessions = 0
         while (running) {
             listener.onConnecting(attempt, lastError)
             try {
@@ -91,6 +97,19 @@ class StreamClient(
                 if (!running) return
                 Log.w(TAG, "session ended", e)
                 lastError = friendly(e)
+                // Connected, but nothing but "ready" came back (no pongs, no frames). Seen once after
+                // another device took over: only restarting the app recovered, so do that ourselves.
+                val replies = received.sum() - received[MSG_READY]
+                if (e is java.net.SocketTimeoutException && replies == 0) {
+                    if (++silentSessions >= 2) {
+                        Log.w(TAG, "no reply in $silentSessions sessions in a row: asking the app to restart")
+                        running = false
+                        listener.onStuck()
+                        return
+                    }
+                } else {
+                    silentSessions = 0
+                }
             }
             attempt++
             try { Thread.sleep(if (attempt < 3) 700L else 2000L) } catch (_: InterruptedException) { return }
@@ -104,6 +123,9 @@ class StreamClient(
         val s = Socket()
         socket = s
         outbox.clear()
+        received.fill(0)
+        val startedAt = System.nanoTime()
+        var lastMessageAt = startedAt
         val decoder = VideoDecoder(surface, ::sendKeyframeRequest, ::sendAck)
         var pinger: Thread? = null
         var writer: Thread? = null
@@ -116,7 +138,7 @@ class StreamClient(
 
             val input = DataInputStream(BufferedInputStream(s.getInputStream(), 256 * 1024))
             val output = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
-            writer = Thread({ writeLoop(output) }, "ScreenBeam-write").apply { start() }
+            writer = Thread({ writeLoop(output, s) }, "ScreenBeam-write").apply { start() }
             sendHello()
             pinger = Thread({ pingLoop() }, "ScreenBeam-ping").apply { start() }
 
@@ -133,6 +155,8 @@ class StreamClient(
                 if (length > buffer.size) buffer = ByteArray(length + length / 2)
                 input.readFully(buffer, 0, length)
                 bytes += length + 5
+                if (type < received.size) received[type]++
+                lastMessageAt = System.nanoTime()
 
                 when (type) {
                     MSG_CONFIG -> {
@@ -203,6 +227,10 @@ class StreamClient(
             }
             return null
         } finally {
+            val counts = received.withIndex().filter { it.value > 0 }.joinToString { "${it.index}:${it.value}" }
+            Log.i(TAG, "session summary: ${(System.nanoTime() - startedAt) / 1_000_000} ms, " +
+                "last message ${(System.nanoTime() - lastMessageAt) / 1_000_000} ms ago, writer alive=${writer?.isAlive}, " +
+                "outbox=${outbox.size}, received {$counts}")
             pinger?.interrupt()
             writer?.interrupt()
             audioChannel?.interrupt()
@@ -289,7 +317,7 @@ class StreamClient(
         }
     }
 
-    private fun writeLoop(out: DataOutputStream) {
+    private fun writeLoop(out: DataOutputStream, own: Socket) {
         try {
             while (running) {
                 val msg = outbox.take()
@@ -300,7 +328,7 @@ class StreamClient(
             }
         } catch (_: InterruptedException) {
         } catch (_: IOException) {
-            try { socket?.close() } catch (_: IOException) {} // unblock the reader so we reconnect
+            try { own.close() } catch (_: IOException) {} // unblock this session's reader so we reconnect
         }
     }
 
