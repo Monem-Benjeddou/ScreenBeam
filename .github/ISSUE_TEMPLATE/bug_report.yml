@@ -45,7 +45,7 @@ body:
       label: How are the devices connected?
       options:
         - Same Wi-Fi network
-        - USB cable
+        - USB-C cable
         - Not sure
   - type: textarea
     id: logs
