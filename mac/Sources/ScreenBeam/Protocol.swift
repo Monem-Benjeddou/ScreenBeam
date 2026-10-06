@@ -96,11 +96,15 @@ struct ClientHello {
     let deviceName: String
     let pairingCode: String
     let flags: UInt8
+    let screenWidth: Int
+    let screenHeight: Int
 
     /// No video: the phone is a controller (Pad mode) and/or a speaker (Sound mode).
     var controllerOnly: Bool { flags & 1 != 0 }
     var wantsAudio: Bool { flags & 2 != 0 }
     var soundOnly: Bool { flags & 4 != 0 }
+    /** v7: the phone is a second screen (a virtual display), not a mirror of an existing one. */
+    var extendDisplay: Bool { flags & 8 != 0 }
 
     var supportsHEVC: Bool { codecMask & 0b10 != 0 }
     var supportsH264: Bool { codecMask & 0b01 != 0 }
@@ -130,5 +134,8 @@ struct ClientHello {
             pairingCode = ""
         }
         flags = r.u8() ?? 0
+        // v7+: the phone's screen in pixels, sizing the virtual display for extended mode.
+        screenWidth = r.uint(UInt16.self).map(Int.init) ?? 0
+        screenHeight = r.uint(UInt16.self).map(Int.init) ?? 0
     }
 }

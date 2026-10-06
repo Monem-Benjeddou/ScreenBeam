@@ -77,6 +77,15 @@ final class StreamController {
     private var statsTimer: DispatchSourceTimer?
     private var port: UInt16 = 0
 
+    // Extended mode: the phone-shaped virtual display. Kept for a short while after the phone
+    // disconnects, so a reconnect doesn't send every window on it back to the main screen.
+    private var virtualDisplay: VirtualDisplay?
+    private var virtualDisplaySize = (0, 0)
+    private var virtualDisplayRelease: DispatchWorkItem?
+
+    private let audioSetupQueue = DispatchQueue(label: "screenbeam.audio-setup")
+    private var audioSetupStuck = false
+
     // Flow control: frames encoded but not yet confirmed on the phone's screen, by pts µs.
     // Capping this bounds glass-to-glass latency: when the phone or Wi-Fi falls behind we
     // stop feeding the encoder (no queue builds, and nothing has to be repaired with a keyframe).
@@ -112,6 +121,7 @@ final class StreamController {
                 self.hello = nil
                 self.inputQueue.async { self.input.releaseAll() }
                 self.teardown()
+                self.releaseVirtualDisplay(after: 20)
                 self.publish(.waiting(port: self.port))
             }
         }
@@ -160,7 +170,9 @@ final class StreamController {
         // Phones from v5 get low-latency Core Audio tap audio; if the tap can't start, video sessions
         // fall back to ScreenCaptureKit audio (≈55 ms later).
         var useCaptureAudio = hello.wantsAudio
-        if hello.wantsAudio && hello.version >= 5, #available(macOS 14.2, *) {
+        if hello.wantsAudio && hello.version >= 5 && audioSetupStuck {
+            Log.write("audio tap skipped: an earlier Core Audio call still hasn't returned")
+        } else if hello.wantsAudio && hello.version >= 5, #available(macOS 14.2, *) {
             let tap = SystemAudioTap()
             tap.onPacket = { [weak self] payload in self?.server.sendAudio(payload, type: .audioLowLatency) }
             // "Both in sync": play our own delayed copy on the Mac. The player must exist before the
@@ -185,7 +197,7 @@ final class StreamController {
             if let player { tap.onFloatStereo = { player.push($0, frames: $1) } }
             let mute = settings.macSpeakers == .muted || player != nil
             do {
-                try tap.start(muteMac: mute, exclude: exclude)
+                try startWithTimeout(tap, muteMac: mute, exclude: exclude)
                 macPlayer = player
                 if let player {
                     Log.write(String(format: "Mac speakers synced to phone (Mac output latency %.1f ms)",
@@ -194,10 +206,12 @@ final class StreamController {
                 audioTap = tap
                 useCaptureAudio = false
             } catch {
+                player?.stop()
                 Log.write("audio tap unavailable (\(error)); using capture audio")
             }
         }
         if hello.controllerOnly {
+            releaseVirtualDisplay(after: 0)
             // No video: phone is a gamepad (Pad) and/or a speaker (Sound). No capture or encoding.
             let displayID = settings.displayID == 0 ? CGMainDisplayID() : settings.displayID
             inputQueue.async { self.input.displayID = displayID }
@@ -210,6 +224,22 @@ final class StreamController {
         }
         let gen = generation
         let s = settings
+        var captureDisplay = s.displayID
+        var newDisplay = false
+        if hello.extendDisplay {
+            let previous = virtualDisplay
+            guard let vd = ensureVirtualDisplay(for: hello) else {
+                let message = "Couldn't create a second screen on this Mac."
+                server.sendError(message)
+                publish(.failed(message))
+                return
+            }
+            captureDisplay = vd.displayID
+            newDisplay = vd !== previous
+        } else {
+            releaseVirtualDisplay(after: 0)
+        }
+        let deviceLabel = hello.extendDisplay ? "\(hello.deviceName) (second screen)" : hello.deviceName
         server.congestionLimit = max(4_000_000, s.bitrateMbps * 1_000_000 / 8 / 2)
         usesAcks = hello.sendsAcks
         frameWindow = max(3, s.fps / 15)  // ≈ 66 ms of frames at 60 fps
@@ -219,13 +249,20 @@ final class StreamController {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let filter = try await CaptureEngine.makeFilter(displayID: s.displayID)
-                let displayID = (s.displayID == 0 ? CGMainDisplayID() : s.displayID)
+                // A brand-new display switches modes once just after it appears; capture after that.
+                if newDisplay { try await Task.sleep(nanoseconds: 600_000_000) }
+                let filter = try await CaptureEngine.makeFilter(displayID: captureDisplay,
+                                                                waitForDisplay: hello.extendDisplay)
+                let displayID = (captureDisplay == 0 ? CGMainDisplayID() : captureDisplay)
                 self.inputQueue.async { self.input.displayID = displayID }
                 var codec = Self.chooseCodec(s.codec, hello, gaming: s.gamingMode)
                 // Gaming: fit the phone's screen (the encoder is ~4x faster at 1440p than at Retina size).
                 let maxHeight = s.gamingMode && s.maxHeight == 0 ? 1440 : s.maxHeight
-                let native = CaptureEngine.nativePixelSize(of: filter)
+                var native = CaptureEngine.nativePixelSize(of: filter)
+                // The filter's scale lags behind a just-created display; its current mode doesn't.
+                if hello.extendDisplay, let mode = CGDisplayCopyDisplayMode(displayID) {
+                    native = (mode.pixelWidth, mode.pixelHeight)
+                }
                 var (w, h) = Self.outputSize(native: native, hello: hello, codec: codec, maxHeight: maxHeight)
                 let encoder: VideoEncoder
                 do {
@@ -241,7 +278,7 @@ final class StreamController {
                                                bitrate: s.bitrateMbps * 1_000_000,
                                                flushEachFrame: s.gamingMode)
                 }
-                Log.write("session: \(hello.deviceName) v\(hello.version) \(w)x\(h) \(codec.name) \(s.fps)fps \(s.bitrateMbps)Mbps gaming=\(s.gamingMode)")
+                Log.write("session: \(deviceLabel) v\(hello.version) \(w)x\(h) \(codec.name) \(s.fps)fps \(s.bitrateMbps)Mbps gaming=\(s.gamingMode)")
                 encoder.onEncoded = { [weak self] config, frame, isKey in
                     self?.server.send(config: config, frame: frame, isKeyframe: isKey)
                 }
@@ -275,7 +312,7 @@ final class StreamController {
                     }
                     self.startRefreshTimer(gen)
                     self.startStatsTimer(gen)
-                    self.publish(.streaming(device: hello.deviceName, width: w, height: h,
+                    self.publish(.streaming(device: deviceLabel, width: w, height: h,
                                             codec: codec.name, fps: s.fps))
                 }
             } catch {
@@ -289,6 +326,69 @@ final class StreamController {
                 }
             }
         }
+    }
+
+    private struct AudioSetupTimeout: Error, CustomStringConvertible {
+        var description: String { "Core Audio didn't answer within 2 s" }
+    }
+
+    /// Starts the tap without letting Core Audio freeze the pipeline: if creating the tap hangs (seen
+    /// after the app was quit and reopened quickly), give up after 2 s and stream without it. A late
+    /// success is stopped right away, and no new tap is attempted until the stuck call returns.
+    @available(macOS 14.2, *)
+    private func startWithTimeout(_ tap: SystemAudioTap, muteMac: Bool, exclude: [AudioObjectID]) throws {
+        final class Outcome { var error: Error?; var abandoned = false }
+        let outcome = Outcome()
+        let done = DispatchSemaphore(value: 0)
+        audioSetupStuck = true
+        audioSetupQueue.async { [weak self] in
+            do { try tap.start(muteMac: muteMac, exclude: exclude) } catch { outcome.error = error }
+            self?.pipeline.async {
+                self?.audioSetupStuck = false
+                if outcome.abandoned {
+                    tap.stop()
+                    Log.write("audio tap: the stuck Core Audio call finally returned")
+                }
+            }
+            done.signal()
+        }
+        if done.wait(timeout: .now() + 2) == .timedOut {
+            outcome.abandoned = true
+            throw AudioSetupTimeout()
+        }
+        audioSetupStuck = false
+        if let error = outcome.error { throw error }
+    }
+
+    /// Reuses the virtual display if it already matches the phone, else makes a new one.
+    private func ensureVirtualDisplay(for hello: ClientHello) -> VirtualDisplay? {
+        virtualDisplayRelease?.cancel()
+        virtualDisplayRelease = nil
+        // Landscape; phones too old to report their screen get a common 20:9 size.
+        let size = hello.screenWidth > 0 && hello.screenHeight > 0
+            ? (max(hello.screenWidth, hello.screenHeight), min(hello.screenWidth, hello.screenHeight))
+            : (2400, 1080)
+        if let vd = virtualDisplay, virtualDisplaySize == size { return vd }
+        virtualDisplay = nil
+        virtualDisplay = VirtualDisplay(pixelWidth: size.0, pixelHeight: size.1, name: "\(hello.deviceName) (ScreenBeam)")
+        virtualDisplaySize = size
+        return virtualDisplay
+    }
+
+    private func releaseVirtualDisplay(after seconds: Double) {
+        virtualDisplayRelease?.cancel()
+        virtualDisplayRelease = nil
+        guard virtualDisplay != nil else { return }
+        if seconds <= 0 {
+            virtualDisplay = nil
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            self?.virtualDisplay = nil
+            self?.virtualDisplayRelease = nil
+        }
+        virtualDisplayRelease = work
+        pipeline.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     private func teardown() {

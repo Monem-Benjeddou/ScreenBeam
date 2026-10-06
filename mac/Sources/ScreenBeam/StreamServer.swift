@@ -297,7 +297,10 @@ private final class Client {
 
     func close(reason: String?, code: Wire.ErrorCode = .retry) {
         guard !closed else { return }
-        Log.write("connection closed (\(isReady ? "session" : "handshake")): \(reason ?? "dropped"), \(inFlight) bytes unsent")
+        // Skip silent handshake drops: the phone probes the USB link every couple of seconds.
+        if isReady || reason != nil {
+            Log.write("connection closed (\(isReady ? "session" : "handshake")): \(reason ?? "dropped"), \(inFlight) bytes unsent")
+        }
         if let reason {
             // Best effort: tell the phone why before hanging up.
             let msg = Wire.errorPayload(reason, code: code)

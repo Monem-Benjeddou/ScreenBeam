@@ -29,6 +29,9 @@ class StreamClient(
     private val wantsAudio: Boolean,
     /** Sound mode: the phone is just a speaker (shown that way on the Mac). */
     private val soundOnly: Boolean,
+    /** Extend mode: the Mac adds a virtual display shaped like [screenSize] and streams that. */
+    private val extendDisplay: Boolean,
+    private val screenSize: Pair<Int, Int>,
     private val listener: Listener,
 ) {
     private val audio = AudioPlayer()
@@ -336,9 +339,11 @@ class StreamClient(
         val caps = VideoDecoder.capabilities()
         val name = deviceName.toByteArray(Charsets.UTF_8).let { if (it.size > 200) it.copyOf(200) else it }
         val pin = pairingCode.toByteArray(Charsets.UTF_8).let { if (it.size > 32) it.copyOf(32) else it }
-        val payload = ByteBuffer.allocate(4 + 1 + 1 + 4 + 4 + 2 + name.size + 1 + pin.size + 1)
+        val payload = ByteBuffer.allocate(4 + 1 + 1 + 4 + 4 + 2 + name.size + 1 + pin.size + 1 + 4)
             .put("SBM1".toByteArray(Charsets.US_ASCII))
-            .put(6) // protocol version: 2 = frame acks, 3 = pairing + input, 4 = flags, 5 = tap audio, 6 = audio channel
+            // Protocol version: 2 = frame acks, 3 = pairing + input, 4 = flags, 5 = tap audio,
+            // 6 = audio channel, 7 = extended display + screen size
+            .put(7)
             .put(caps.codecMask.toByte())
             .putInt(caps.maxWidth)
             .putInt(caps.maxHeight)
@@ -346,7 +351,10 @@ class StreamClient(
             .put(name)
             .put(pin.size.toByte())
             .put(pin)
-            .put(((if (noVideo) 1 else 0) or (if (wantsAudio) 2 else 0) or (if (soundOnly) 4 else 0)).toByte())
+            .put(((if (noVideo) 1 else 0) or (if (wantsAudio) 2 else 0) or (if (soundOnly) 4 else 0) or
+                (if (extendDisplay) 8 else 0)).toByte())
+            .putShort(screenSize.first.coerceAtMost(65535).toShort())
+            .putShort(screenSize.second.coerceAtMost(65535).toShort())
             .array()
         send(MSG_HELLO, payload)
     }
