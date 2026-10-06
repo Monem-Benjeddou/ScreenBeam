@@ -166,14 +166,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         case .failed: symbol = "exclamationmark.triangle"
         default: symbol = "display"
         }
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "ScreenBeam")
-        image?.isTemplate = true
+        // Always white (green while streaming): a template icon follows macOS's guess of the menu bar
+        // colour, which can come out black on a dark wallpaper and disappear.
+        let color: NSColor = status.isActive ? .systemGreen : .white
+        let config = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "ScreenBeam")?
+            .withSymbolConfiguration(config)
+        image?.isTemplate = false
         button.image = image
-        if status.isActive {
-            button.contentTintColor = .systemGreen
-        } else {
-            button.contentTintColor = nil
-        }
+        button.contentTintColor = nil
     }
 
     // MARK: - Menu
