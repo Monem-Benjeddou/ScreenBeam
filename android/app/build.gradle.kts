@@ -1,8 +1,9 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    // AGP 9 compiles Kotlin itself; the separate kotlin-android plugin must not be applied.
+    // The Kotlin version is still pinned in the root build file.
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
