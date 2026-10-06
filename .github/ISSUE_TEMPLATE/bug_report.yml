@@ -32,6 +32,21 @@ body:
       placeholder: "macOS 15.1, Apple Silicon"
     validations:
       required: true
+  - type: input
+    id: android
+    attributes:
+      label: Android version and phone model
+      placeholder: "Android 14, Pixel 8"
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: How are the devices connected?
+      options:
+        - Same Wi-Fi network
+        - USB cable
+        - Not sure
   - type: textarea
     id: logs
     attributes:
