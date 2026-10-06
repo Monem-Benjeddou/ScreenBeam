@@ -37,13 +37,20 @@ import kotlin.math.sign
 typealias InputProvider = () -> StreamClient?
 
 enum class ControlMode(val label: String) {
-    VIEW("View"), TOUCH("Touch"), TRACKPAD("Mouse"), GAMEPAD("Game"), PAD("Pad"), SOUND("Sound"), KEYBOARD("Keys");
+    VIEW("View"), TOUCH("Touch"), TRACKPAD("Mouse"), GAMEPAD("Game"), PAD("Pad"), SOUND("Sound"), KEYBOARD("Keys"),
+    EXTEND("Extend");
 
     /**
      * No video is sent: PAD = the phone is a controller (you watch the Mac's own screen),
      * SOUND = the phone is just a speaker for the Mac.
      */
     val noVideo get() = this == PAD || this == SOUND
+
+    /** The phone is an extra screen for the Mac (a virtual display), not a mirror of one. */
+    val extendsDisplay get() = this == EXTEND
+
+    /** The finger is the cursor: tap exactly where you want to click. */
+    val directTouch get() = this == TOUCH || this == EXTEND
 }
 
 /** What people want to do. Each goal groups the control styles that serve it. */
@@ -51,7 +58,8 @@ enum class Goal(val label: String, val icon: String, val modes: List<ControlMode
     WATCH("Watch", "👁", listOf(ControlMode.VIEW)),
     CONTROL("Control", "🖱", listOf(ControlMode.TRACKPAD, ControlMode.TOUCH, ControlMode.KEYBOARD)),
     PLAY("Play", "🎮", listOf(ControlMode.GAMEPAD, ControlMode.PAD)),
-    LISTEN("Listen", "🔊", listOf(ControlMode.SOUND));
+    LISTEN("Listen", "🔊", listOf(ControlMode.SOUND)),
+    EXTEND("Extend", "🖥", listOf(ControlMode.EXTEND));
 
     companion object {
         fun of(mode: ControlMode) = values().first { mode in it.modes }
@@ -65,6 +73,7 @@ private val ControlMode.styleLabel get() = when (this) {
     ControlMode.KEYBOARD -> "Keyboard"
     ControlMode.GAMEPAD -> "On screen"
     ControlMode.PAD -> "Controller only"
+    ControlMode.EXTEND -> "Second screen"
     else -> label
 }
 
@@ -76,6 +85,7 @@ private val ControlMode.hint get() = when (this) {
     ControlMode.GAMEPAD -> "Left side moves. Drag on the right to look. Hold AIM and tilt the phone to aim."
     ControlMode.PAD -> "Watch the Mac's screen; your phone is the controller. No video is sent."
     ControlMode.SOUND -> "Your Mac's sound plays on this phone. No video is sent."
+    ControlMode.EXTEND -> "Your phone is an extra screen. Drag windows onto it from your Mac. Tap to click."
 }
 
 /** What the overlay asks of the activity. */
@@ -297,7 +307,7 @@ class ControlsOverlay(
         mode = m
         prefs.edit().putString("mode", m.name).apply()
         // Keyboard mode keeps a trackpad above the keys.
-        pointer.visibility = if (m == ControlMode.TOUCH || m == ControlMode.TRACKPAD || m == ControlMode.KEYBOARD) VISIBLE else GONE
+        pointer.visibility = if (m.directTouch || m == ControlMode.TRACKPAD || m == ControlMode.KEYBOARD) VISIBLE else GONE
         gamepad.visibility = if (m == ControlMode.GAMEPAD || m == ControlMode.PAD) VISIBLE else GONE
         if (editingLayout && gamepad.visibility != VISIBLE) gamepad.setEditing(false)
         soundPanel.visibility = if (m == ControlMode.SOUND) VISIBLE else GONE
@@ -393,7 +403,7 @@ class ControlsOverlay(
         private var remX = 0f
         private var remY = 0f
         private val longPress = Runnable {
-            if (!moved && maxPointers == 1 && mode != ControlMode.TOUCH) {
+            if (!moved && maxPointers == 1 && !mode.directTouch) {
                 input()?.mouseButton(0, true) // long-press then drag = click-and-drag
                 buttonDown = true
                 performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
@@ -409,7 +419,7 @@ class ControlsOverlay(
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouchEvent(e: MotionEvent): Boolean {
             val c = input()
-            val direct = mode == ControlMode.TOUCH
+            val direct = mode.directTouch
             val (x, y) = average(e)
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {

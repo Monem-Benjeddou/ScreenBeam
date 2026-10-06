@@ -219,10 +219,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         applyPadLook()
         // Pad mode connects without video; switching in or out of it renegotiates with the Mac.
         // Pad and Sound connect without video; moving into, out of, or between them renegotiates with the Mac.
-        if ((old.noVideo || new.noVideo) && target != null) {
+        if ((old.noVideo || new.noVideo || old.extendsDisplay != new.extendsDisplay) && target != null) {
             showStatus(when (new) {
                 ControlMode.PAD -> "Switching to controller mode…"
                 ControlMode.SOUND -> "Switching to sound only…"
+                ControlMode.EXTEND -> "Making your phone a second screen…"
                 else -> "Starting video…"
             })
             startClient()
@@ -331,6 +332,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             // Sound mode always wants audio; Pad plays it if sound is on; video modes always receive it (muted locally if off).
             wantsAudio = controls.mode == ControlMode.SOUND || !controls.mode.noVideo || isSoundOn(),
             soundOnly = controls.mode == ControlMode.SOUND,
+            extendDisplay = controls.mode.extendsDisplay,
+            screenSize = screenPixels(),
             listener = Callbacks(clientGeneration),
         ).also {
             it.soundOn = isSoundOn() || controls.mode == ControlMode.SOUND
@@ -391,6 +394,14 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         startActivity(intent)
         Runtime.getRuntime().exit(0)
+    }
+
+    /** The phone's screen in pixels, landscape; the Mac sizes the second screen to match. */
+    private fun screenPixels(): Pair<Int, Int> {
+        val dm = android.util.DisplayMetrics()
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealMetrics(dm)
+        return maxOf(dm.widthPixels, dm.heightPixels) to minOf(dm.widthPixels, dm.heightPixels)
     }
 
     private fun deviceName(): String =

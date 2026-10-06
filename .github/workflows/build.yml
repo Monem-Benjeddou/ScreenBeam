@@ -48,6 +48,8 @@ jobs:
         run: |
           chmod +x gradlew
           export VERSION_NAME="${VERSION_NAME#v}"
+          # Android only installs updates with a higher versionCode; stay above early local builds.
+          export VERSION_CODE=$((1000 + VERSION_CODE))
           ./gradlew --no-daemon assembleRelease lintRelease
           cp app/build/outputs/apk/release/app-release.apk ../ScreenBeam.apk
 

@@ -26,9 +26,16 @@ final class CaptureEngine: NSObject, SCStreamOutput, SCStreamDelegate {
         self.queue = queue
     }
 
-    static func makeFilter(displayID: CGDirectDisplayID) async throws -> SCContentFilter {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+    /// `waitForDisplay`: a display that was just created (the virtual one) takes a moment to show up.
+    static func makeFilter(displayID: CGDirectDisplayID, waitForDisplay: Bool = false) async throws -> SCContentFilter {
         let wanted = displayID == 0 ? CGMainDisplayID() : displayID
+        var content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        var tries = 0
+        while waitForDisplay, tries < 30, !content.displays.contains(where: { $0.displayID == wanted }) {
+            try await Task.sleep(nanoseconds: 100_000_000)
+            content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            tries += 1
+        }
         guard let display = content.displays.first(where: { $0.displayID == wanted })
             ?? content.displays.first(where: { $0.displayID == CGMainDisplayID() })
             ?? content.displays.first
