@@ -30,11 +30,21 @@ Get both files from the [latest release](../../releases/latest):
 ## Install
 
 ### Mac
+**Quickest:** paste this into Terminal. It downloads the latest release, checks its checksum and signature, and installs it into Applications without the "unidentified developer" warning ([read the script first](install.sh)):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Monem-Benjeddou/ScreenBeam/main/install.sh | bash
+```
+
+Run the same command again later to update.
+
+Or install it yourself:
+
 1. Unzip `ScreenBeam-mac.zip` and drag **ScreenBeam.app** into **Applications**.
-2. The app isn't notarized by Apple, so the first launch needs one extra step. **Right-click → Open → Open**, or run:
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/ScreenBeam.app
-   ```
+2. Open it. ScreenBeam isn't notarized by Apple (that requires a paid developer account), so macOS blocks the first launch:
+   - **macOS 15 or later:** close the warning, open **System Settings › Privacy & Security**, scroll down, and click **Open Anyway** next to ScreenBeam.
+   - **macOS 14:** right-click ScreenBeam.app, choose **Open**, then click **Open** again.
+   - **Or**, in Terminal: `xattr -dr com.apple.quarantine /Applications/ScreenBeam.app`
 3. Follow the setup checklist in the ScreenBeam window. Each step ticks off as soon as it's done:
    1. **Screen Recording.** Click *Open Settings*, turn on ScreenBeam, then click *Relaunch*.
    2. **Accessibility.** Lets the phone control the mouse and keyboard. Skip it if you only want to watch or listen.
@@ -95,7 +105,7 @@ A Bluetooth controller paired with the phone also works. Its buttons are mapped 
 ## Troubleshooting
 | Problem | Fix |
 |---|---|
-| The Mac app won't open | Use right-click → Open, or the `xattr` command above |
+| The Mac app won't open | On macOS 15 or later, click **Open Anyway** in System Settings › Privacy & Security. Or install it with the one-line installer above |
 | Black screen on the phone | Turn on Screen Recording for ScreenBeam in System Settings, then click *Relaunch* |
 | The phone can't control the Mac | Turn on Accessibility for ScreenBeam (setup step 2) |
 | No sound | Allow audio recording for ScreenBeam when macOS asks (System Settings → Privacy & Security) |

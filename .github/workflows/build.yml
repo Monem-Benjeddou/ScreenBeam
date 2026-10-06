@@ -47,6 +47,7 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
           chmod +x gradlew
+          export VERSION_NAME="${VERSION_NAME#v}"
           ./gradlew --no-daemon assembleRelease lintRelease
           cp app/build/outputs/apk/release/app-release.apk ../ScreenBeam.apk
 
@@ -90,17 +91,20 @@ jobs:
         env:
           VERSION: ${{ env.VERSION_NAME }}
         run: |
-          ./build-app.sh
+          VERSION="${VERSION#v}" ./build-app.sh
           lipo -archs build/ScreenBeam.app/Contents/MacOS/ScreenBeam | grep -q x86_64
           lipo -archs build/ScreenBeam.app/Contents/MacOS/ScreenBeam | grep -q arm64
           codesign --verify --deep --strict build/ScreenBeam.app
           codesign -dvv build/ScreenBeam.app 2>&1 | grep -E "Format|Authority" || true
           ditto -c -k --keepParent build/ScreenBeam.app ../ScreenBeam-mac.zip
+          cd .. && shasum -a 256 ScreenBeam-mac.zip | tee ScreenBeam-mac.zip.sha256
 
       - uses: actions/upload-artifact@v4
         with:
           name: mac
-          path: ScreenBeam-mac.zip
+          path: |
+            ScreenBeam-mac.zip
+            ScreenBeam-mac.zip.sha256
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -118,12 +122,18 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           cat > notes.md <<EOF
-          **Mac** (macOS 14.2 or later, Apple Silicon or Intel): download \`ScreenBeam-mac.zip\`, unzip it, and move ScreenBeam.app to Applications. The first time, open it with right-click → Open, because the app isn't notarized by Apple.
+          **Mac** (macOS 14.2 or later, Apple Silicon or Intel). The quickest way to install or update is to paste this into Terminal:
+
+          \`\`\`sh
+          curl -fsSL https://raw.githubusercontent.com/Monem-Benjeddou/ScreenBeam/main/install.sh | bash
+          \`\`\`
+
+          Or download \`ScreenBeam-mac.zip\`, unzip it, and move ScreenBeam.app to Applications. The app isn't notarized by Apple, so on macOS 15 or later click **Open Anyway** in System Settings › Privacy & Security after the first launch (on macOS 14, right-click → Open).
 
           **Android** (Android 8 or later): install \`ScreenBeam.apk\` on your phone.
 
           Then scan the QR code in the Mac window from the phone app. The [README](https://github.com/${{ github.repository }}#readme) has the full guide.
           EOF
           sed -i 's/^          //' notes.md
-          gh release create "$TAG" ScreenBeam-mac.zip ScreenBeam.apk \
+          gh release create "$TAG" ScreenBeam-mac.zip ScreenBeam-mac.zip.sha256 ScreenBeam.apk \
             --repo "${{ github.repository }}" --title "ScreenBeam ${TAG#v}" --notes-file notes.md
