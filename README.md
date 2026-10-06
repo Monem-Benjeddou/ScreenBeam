@@ -135,5 +135,8 @@ python3 tools/test_client.py <mac-ip> 7878 10
 
 Create that certificate once in Keychain Access (*Certificate Assistant → Create a Certificate*, type *Code Signing*). With it, macOS keeps the Screen Recording and Accessibility permissions when you rebuild. With an ad-hoc signature, macOS asks for them again after every build.
 
+## Contributing
+Bug reports and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md). Report security problems privately, as described in [SECURITY.md](SECURITY.md).
+
 ## License
 ScreenBeam is free and open source under the [MIT License](LICENSE). You can use, change and share it.
