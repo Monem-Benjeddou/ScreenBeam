@@ -33,6 +33,8 @@ class StreamClient(
     private val extendDisplay: Boolean,
     private val screenSize: Pair<Int, Int>,
     private val listener: Listener,
+    /** The client this one replaces: we wait for it to let go of the Surface before connecting. */
+    private val previous: StreamClient? = null,
 ) {
     private val audio = AudioPlayer()
 
@@ -51,6 +53,8 @@ class StreamClient(
         fun onPairingRequired(message: String)
         /** Several connections in a row got no reply at all: the app should restart itself. */
         fun onStuck() {}
+        /** A message from the Mac for the person holding the phone (the stream continues). */
+        fun onNotice(message: String) {}
     }
 
     data class Stats(
@@ -73,13 +77,34 @@ class StreamClient(
     fun stop() {
         running = false
         try { socket?.close() } catch (_: IOException) {}
+        try { audioSocket?.close() } catch (_: IOException) {}
         thread.interrupt()
     }
+
+    /** True once this client's network thread has finished (and released its decoder). */
+    fun awaitStopped(timeoutMs: Long): Boolean {
+        thread.join(timeoutMs)
+        return !thread.isAlive
+    }
+
+    /**
+     * When a decoder call started (0 = none running). MediaCodec calls can wedge (e.g. a codec still
+     * attached to the Surface); the ping thread watches this so a stuck reader can't hang us forever.
+     */
+    @Volatile private var decoderBusySince = 0L
 
     /** Messages received in the current session by type, for the end-of-session log line. */
     private val received = IntArray(32)
 
     private fun run() {
+        // Two clients must never drive the same Surface: wait for the old one to finish first. If it
+        // can't (stuck inside MediaCodec), only a fresh process recovers, so ask for one.
+        if (previous != null && !previous.awaitStopped(3000)) {
+            Log.w(TAG, "previous connection still hasn't stopped after 3 s: asking the app to restart")
+            running = false
+            listener.onStuck()
+            return
+        }
         var attempt = 0
         var lastError: String? = null
         var silentSessions = 0
@@ -155,7 +180,7 @@ class StreamClient(
                 val type = input.readUnsignedByte()
                 val length = input.readInt()
                 if (length < 0 || length > MAX_MESSAGE) throw IOException("Bad message length $length")
-                if (length > buffer.size) buffer = ByteArray(length + length / 2)
+                if (length > buffer.size) buffer = ByteArray(length)
                 input.readFully(buffer, 0, length)
                 bytes += length + 5
                 if (type < received.size) received[type]++
@@ -164,15 +189,24 @@ class StreamClient(
                 when (type) {
                     MSG_CONFIG -> {
                         val cfg = parseConfig(buffer, length)
-                        if (decoder.configure(buffer.copyOf(length), cfg.mime, cfg.width, cfg.height, cfg.paramSets)) {
-                            listener.onVideoSize(cfg.width, cfg.height)
+                        decoderBusySince = System.nanoTime()
+                        val ok = try {
+                            decoder.configure(buffer.copyOf(length), cfg.mime, cfg.width, cfg.height, cfg.paramSets)
+                        } finally {
+                            decoderBusySince = 0L
                         }
+                        if (ok) listener.onVideoSize(cfg.width, cfg.height)
                     }
                     MSG_FRAME -> {
                         if (length < 9) continue
                         val isKey = (buffer[0].toInt() and 1) != 0
                         val pts = ByteBuffer.wrap(buffer, 1, 8).long
-                        decoder.decode(buffer, 9, length - 9, isKey, pts)
+                        decoderBusySince = System.nanoTime()
+                        try {
+                            decoder.decode(buffer, 9, length - 9, isKey, pts)
+                        } finally {
+                            decoderBusySince = 0L
+                        }
                         if (!streaming && isKey) {
                             streaming = true
                             listener.onStreaming()
@@ -187,7 +221,10 @@ class StreamClient(
                             streaming = true
                             listener.onStreaming()
                         }
-                        if (wantsAudio) audioChannel = Thread({ audioLoop() }, "ScreenBeam-audio-net").apply { start() }
+                        // One audio channel per session (a repeated READY must not start a second one).
+                        if (wantsAudio && audioChannel == null) {
+                            audioChannel = Thread({ audioLoop() }, "ScreenBeam-audio-net").apply { start() }
+                        }
                     }
                     MSG_AUDIO -> if (length > 8) audio.write(48_000, buffer, 8, length - 8)
                     MSG_AUDIO_LOW_LATENCY -> if (length > 4) {
@@ -200,6 +237,7 @@ class StreamClient(
                         bb.short
                         macSkipped = bb.short.toInt() and 0xffff
                     }
+                    MSG_NOTICE -> listener.onNotice(String(buffer, 0, length, Charsets.UTF_8))
                     MSG_ERROR -> {
                         val code = if (length > 0) buffer[0].toInt() else 1
                         val message = if (length > 1) String(buffer, 1, length - 1, Charsets.UTF_8) else "Error"
@@ -315,6 +353,14 @@ class StreamClient(
             while (running && !Thread.currentThread().isInterrupted) {
                 send(MSG_PING, ByteBuffer.allocate(8).putLong(System.nanoTime()).array())
                 Thread.sleep(1000)
+                val busy = decoderBusySince
+                if (busy != 0L && System.nanoTime() - busy > 4_000_000_000L) {
+                    Log.w(TAG, "video decoder stuck for over 4 s: asking the app to restart")
+                    running = false
+                    try { socket?.close() } catch (_: IOException) {}
+                    listener.onStuck()
+                    return
+                }
             }
         } catch (_: InterruptedException) {
         }
@@ -410,6 +456,8 @@ class StreamClient(
         val sets = ArrayList<ByteArray>(count)
         repeat(count) {
             val len = bb.int
+            // Lengths come from the network: never allocate more than the message actually holds.
+            if (len <= 0 || len > bb.remaining()) throw IOException("Bad parameter set length $len")
             val nal = ByteArray(len)
             bb.get(nal)
             sets += nal
@@ -430,7 +478,7 @@ class StreamClient(
 
     companion object {
         private const val TAG = "ScreenBeam"
-        private const val MAX_MESSAGE = 64 * 1024 * 1024
+        private const val MAX_MESSAGE = 8 * 1024 * 1024 // a 4K keyframe is ~1 MB; more is garbage
 
         const val DEFAULT_PORT = 7878
         private const val MSG_HELLO = 1
@@ -453,5 +501,6 @@ class StreamClient(
         private const val MSG_AUDIO = 15
         private const val MSG_READY = 16
         private const val MSG_AUDIO_LOW_LATENCY = 17
+        private const val MSG_NOTICE = 18
     }
 }

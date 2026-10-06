@@ -33,8 +33,12 @@ final class SyncedMacPlayer {
 
     /// Starts the output engine. Call before creating the tap, so this process exists as an
     /// audio object and can be excluded from it (otherwise our own playback would be re-tapped).
+    struct UnsupportedFormat: Error {}
+
     func start() throws {
-        let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2)!
+        guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 2) else {
+            throw UnsupportedFormat()
+        }
         let node = AVAudioSourceNode(format: format) { [weak self] _, _, frameCount, abl -> OSStatus in
             self?.render(Int(frameCount), UnsafeMutableAudioBufferListPointer(abl))
             return noErr
@@ -56,7 +60,9 @@ final class SyncedMacPlayer {
 
     /// Phone playout latency (receipt → speaker) in seconds, plus transit.
     func setPhoneLatency(_ seconds: Double) {
-        let delay = max(0, seconds - macOutputLatency)
+        guard seconds.isFinite else { return }
+        // The ring holds 2 s; a larger (bogus) report would replay stale audio.
+        let delay = min(1.5, max(0, seconds - macOutputLatency))
         lock.lock()
         targetDelayFrames = delay * sampleRate
         lock.unlock()

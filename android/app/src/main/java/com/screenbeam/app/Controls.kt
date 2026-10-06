@@ -356,7 +356,7 @@ class ControlsOverlay(
         }
     }
 
-    private fun showHint(text: String) {
+    fun showHint(text: String) {
         hintView.text = text
         hintView.visibility = VISIBLE
         removeCallbacks(hideHint)

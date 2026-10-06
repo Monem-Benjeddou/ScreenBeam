@@ -1,7 +1,14 @@
+import SystemConfiguration
 import Foundation
 
 /// 6-digit code the phone must present. Protects the Mac's screen and input from anyone else on the Wi-Fi.
 enum Pairing {
+    /// The Mac's name as set in System Settings. Local lookup (unlike Host.current(), which can
+    /// block for seconds on DNS).
+    static var computerName: String {
+        (SCDynamicStoreCopyComputerName(nil, nil) as String?).flatMap { $0.isEmpty ? nil : $0 } ?? "Mac"
+    }
+
     private static let key = "pairingCode"
 
     static var code: String {
@@ -39,7 +46,7 @@ enum PairingQR {
         c.scheme = "screenbeam"
         c.host = "pair"
         c.queryItems = [
-            URLQueryItem(name: "name", value: Host.current().localizedName ?? "Mac"),
+            URLQueryItem(name: "name", value: Pairing.computerName),
             URLQueryItem(name: "ips", value: addresses.joined(separator: ",")),
             URLQueryItem(name: "port", value: String(port)),
             URLQueryItem(name: "code", value: code),

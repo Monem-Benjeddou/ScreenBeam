@@ -27,6 +27,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.Surface
 import android.view.SurfaceHolder
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -75,7 +76,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        CrashGuard.install(this)
         volumeControlStream = android.media.AudioManager.STREAM_MUSIC // volume keys adjust the Mac's sound
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes = window.attributes.apply {
@@ -89,6 +90,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             maybeAutoConnect()
         }
         showPicker(null)
+        CrashGuard.takeNotice(this)?.let { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
         intent?.data?.let { handlePairLink(it.toString()) }
     }
 
@@ -120,7 +122,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         }
         val name = uri.getQueryParameter("name") ?: "Mac"
         val code = uri.getQueryParameter("code") ?: return
-        val port = uri.getQueryParameter("port")?.toIntOrNull() ?: StreamClient.DEFAULT_PORT
+        val port = uri.getQueryParameter("port")?.toIntOrNull()?.takeIf { it in 1..65535 } ?: StreamClient.DEFAULT_PORT
         val ip = uri.getQueryParameter("ips")?.split(",")?.firstOrNull { it.isNotBlank() }
         prefs.edit()
             .putString("pin_$name", code).putString("pin_$USB_NAME", code).putString("pin_last", code)
@@ -142,7 +144,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         super.onStart()
         started = true
         if (::controls.isInitialized) controls.resume()
-        startUsbProbe()
+        updateUsbProbe()
         discovery.start()
         if (target != null && surface != null && client == null) startClient()
     }
@@ -158,6 +160,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         controls.pause()
         discovery.stop()
         stopClient() // keeps `target`, so we reconnect when the app comes back
+        updateUsbProbe()
     }
 
     // A controller paired with the phone drives the game directly.
@@ -178,11 +181,23 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
 
     /**
      * The Mac runs `adb reverse` when the phone is plugged in, which makes it reachable at 127.0.0.1.
-     * Probe for that tunnel every couple of seconds while the app is visible.
+     * Probe for that tunnel every couple of seconds, but only while the picker is on screen (not while
+     * streaming, and not in the background). One probe thread at most.
      */
-    private fun startUsbProbe() {
-        Thread({
-            while (started) {
+    @Volatile private var probeWanted = false
+    private var probeThread: Thread? = null
+
+    private fun updateUsbProbe() {
+        probeWanted = started && client == null
+        if (probeWanted && probeThread?.isAlive != true) {
+            probeThread = Thread({ usbProbeLoop() }, "ScreenBeam-usb").apply { isDaemon = true; start() }
+        } else if (!probeWanted) {
+            probeThread?.interrupt()
+        }
+    }
+
+    private fun usbProbeLoop() {
+        while (probeWanted) {
                 val ok = try {
                     java.net.Socket().use { it.connect(java.net.InetSocketAddress("127.0.0.1", StreamClient.DEFAULT_PORT), 300) }
                     true
@@ -196,9 +211,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
                         maybeAutoConnect()
                     }
                 }
-                try { Thread.sleep(2000) } catch (_: InterruptedException) { return@Thread }
-            }
-        }, "ScreenBeam-usb").start()
+                try { Thread.sleep(2000) } catch (_: InterruptedException) { return }
+        }
     }
 
     // MARK: ControlsHost
@@ -304,6 +318,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
 
     private fun connect(host: Discovery.Host) {
         target = host
+        if (host != usbHost) prefs.edit().putString("wifi_name", host.name).apply()
         prefs.edit()
             .putString("name", host.name).putString("address", host.address).putInt("port", host.port)
             .apply()
@@ -321,6 +336,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
     private fun startClient() {
         val host = target ?: return
         val s = surface ?: return
+        val old = client  // the new client waits for this one to release the Surface
         stopClient()
         acquireWifiLock()
         clientGeneration++
@@ -335,10 +351,12 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             extendDisplay = controls.mode.extendsDisplay,
             screenSize = screenPixels(),
             listener = Callbacks(clientGeneration),
+            previous = old,
         ).also {
             it.soundOn = isSoundOn() || controls.mode == ControlMode.SOUND
             it.start()
         }
+        updateUsbProbe()
     }
 
     private fun stopClient() {
@@ -348,6 +366,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         client?.stop()
         client = null
         wifiLock?.let { if (it.isHeld) it.release() }
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        updateUsbProbe()
     }
 
     /** Stops Wi-Fi power saving while streaming; this removes most latency spikes on phones. */
@@ -390,7 +410,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
             return
         }
         prefs.edit().putLong("last_self_restart", now).commit()
-        val intent = packageManager.getLaunchIntentForPackage(packageName)!!
+        val intent = (packageManager.getLaunchIntentForPackage(packageName) ?: return)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         startActivity(intent)
         Runtime.getRuntime().exit(0)
@@ -416,11 +436,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         }
 
         override fun onConnecting(attempt: Int, lastError: String?) = onUi {
+            // USB cable pulled while streaming over it: switch to the same Mac on Wi-Fi if we can see it.
+            if (target == usbHost && attempt >= 2) {
+                val lastName = prefs.getString("wifi_name", null)
+                discovered.firstOrNull { it.name == lastName }?.let { wifi ->
+                    usbAvailable = false
+                    Log.i("ScreenBeam", "USB tunnel gone: switching to ${wifi.name} on Wi-Fi")
+                    connect(wifi)
+                    return@onUi
+                }
+            }
             val name = target?.name ?: "Mac"
             showStatus(if (lastError == null) "Connecting to $name…" else "Reconnecting to $name…\n$lastError")
         }
 
+        override fun onNotice(message: String) = onUi { controls.showHint(message) }
+
         override fun onStreaming() = onUi {
+            // Keep the screen on only while actually streaming (not on the picker).
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             statusPanel.visibility = View.GONE
             picker.visibility = View.GONE
             controls.visibility = View.VISIBLE
@@ -477,8 +511,18 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         statusPanel.visibility = View.GONE
         hud.visibility = View.GONE
         picker.visibility = View.VISIBLE
-        pickerMessage.visibility = if (message == null) View.GONE else View.VISIBLE
-        pickerMessage.text = message
+        val shown = message ?: if (CrashGuard.safeMode) {
+            "Safe mode: fast video decoding is off because ScreenBeam closed right after starting more than once. Tap here to turn it back on."
+        } else null
+        pickerMessage.visibility = if (shown == null) View.GONE else View.VISIBLE
+        pickerMessage.text = shown
+        pickerMessage.setOnClickListener {
+            if (CrashGuard.safeMode) {
+                CrashGuard.leaveSafeMode()
+                pickerMessage.visibility = View.GONE
+                Toast.makeText(this, "Fast video decoding is back on", Toast.LENGTH_SHORT).show()
+            }
+        }
         renderHosts()
     }
 
@@ -527,8 +571,13 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
     private fun connectManual() {
         val text = manualInput.text.toString().trim()
         if (text.isEmpty()) return
+        // "host" or "host:port" (IPv4 or a name); anything else is rejected with a message.
         val parts = text.split(":")
-        val port = parts.getOrNull(1)?.toIntOrNull() ?: StreamClient.DEFAULT_PORT
+        val port = if (parts.size == 2) parts[1].toIntOrNull()?.takeIf { it in 1..65535 } else StreamClient.DEFAULT_PORT
+        if (parts.size > 2 || parts[0].isBlank() || port == null) {
+            Toast.makeText(this, "Type the address shown on your Mac, like 192.168.1.20:7878", Toast.LENGTH_LONG).show()
+            return
+        }
         connect(Discovery.Host(parts[0], parts[0], port))
     }
 
@@ -575,7 +624,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback, ControlsHost {
         hostList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(hostList)
 
-        content.addView(label("Or enter the address shown in the Mac's menu bar", 13f, MUTED).apply {
+        content.addView(label("Or type the address from “Connect manually” in ScreenBeam on your Mac", 13f, MUTED).apply {
             setPadding(0, dp(28), 0, dp(8))
         })
         val manualRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }

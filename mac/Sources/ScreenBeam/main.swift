@@ -26,6 +26,32 @@ if let i = CommandLine.arguments.firstIndex(of: "--virtual-display-test") {
     RunLoop.main.run()
 }
 
+// Demo-data render of the window (for checks and README screenshots); see WindowPreview.
+if let i = CommandLine.arguments.firstIndex(of: "--render-preview"), CommandLine.arguments.count > i + 1 {
+    let args = CommandLine.arguments
+    let ok = MainActor.assumeIsolated {
+        WindowPreview.render(to: args[i + 1], scenario: args.count > i + 2 ? args[i + 2] : "streaming")
+    }
+    exit(ok ? 0 : 1)
+}
+
+// Watchdog process: see Resilience. Waits for the app to exit and reopens it after a crash.
+if CommandLine.arguments.count >= 4, CommandLine.arguments[1] == "--watchdog", let pid = pid_t(CommandLine.arguments[2]) {
+    Resilience.runWatchdog(appPID: pid, bundlePath: CommandLine.arguments[3])
+}
+
+// One copy at a time: a second launch asks the running one to show its window, then quits.
+let me = ProcessInfo.processInfo.processIdentifier
+if let id = Bundle.main.bundleIdentifier,
+   NSRunningApplication.runningApplications(withBundleIdentifier: id).contains(where: { $0.processIdentifier != me }) {
+    DistributedNotificationCenter.default().postNotificationName(
+        AppDelegate.showWindowNotification, object: nil, userInfo: nil, deliverImmediately: true)
+    exit(0)
+}
+
+Resilience.installInApp()
+Resilience.runDebugTriggers()
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate

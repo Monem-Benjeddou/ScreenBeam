@@ -61,7 +61,7 @@ Once paired, the phone finds the Mac on its own next time. If your router blocks
 ## Using it
 
 ### Pick what you want to do
-The bar at the top of the phone screen has four goals:
+The bar at the top of the phone screen has five goals:
 
 | Goal | Modes | For |
 |---|---|---|
@@ -69,6 +69,7 @@ The bar at the top of the phone screen has four goals:
 | 🖱 **Control** | Mouse · Touch · Keys | Using the Mac from the phone |
 | 🎮 **Play** | Game · Pad | Games. *Pad* turns the phone into a controller with no video, for when you play on the Mac's screen |
 | 🔊 **Listen** | Sound | Mac audio only, no video. Saves battery |
+| 🖥 **Extend** | Second screen | The phone becomes an extra display for the Mac: drag windows onto it, tap to click. Arrange it in System Settings → Displays |
 
 **Control modes**
 - **Mouse:** a laptop-style trackpad. Tap to click, long-press then drag to drag, two fingers to right-click or scroll.
@@ -111,6 +112,11 @@ A Bluetooth controller paired with the phone also works. Its buttons are mapped 
 | No sound | Allow audio recording for ScreenBeam when macOS asks (System Settings → Privacy & Security) |
 | The phone doesn't find the Mac | Both devices must be on the same Wi-Fi. Scan the QR code again, or connect manually |
 | Stutter on Wi-Fi | Use 5 GHz Wi-Fi or a USB cable. Lower the bitrate under Advanced |
+| "Safe mode" banner | ScreenBeam stopped right after starting more than once, so it turned off its riskiest part (fast sound capture on the Mac, fast video decoding on the phone). Click or tap the banner's button to turn it back on |
+
+**If something goes wrong:**
+- **It reopens itself.** If ScreenBeam crashes or freezes, it reopens by itself and tells you so. After three crashes in a row right after starting, it stays closed and starts in safe mode the next time you open it.
+- **Only one copy runs.** Opening ScreenBeam again just brings up its window.
 
 Logs are written to `~/Library/Logs/ScreenBeam.log` on the Mac and to `adb logcat -s ScreenBeam` on the phone.
 

@@ -99,12 +99,16 @@ final class SystemAudioTap {
         guard let first = buffers.first, first.mDataByteSize > 0,
               format.mFormatFlags & kAudioFormatFlagIsFloat != 0, format.mBitsPerChannel == 32
         else { return }
-        let channels = max(1, Int(format.mChannelsPerFrame))
         let interleaved = format.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
-        let frames = interleaved ? Int(first.mDataByteSize) / 4 / channels : Int(first.mDataByteSize) / 4
+        // Trust the buffers, not just the format: size reads by the smallest buffer and its own channel count.
+        let channels = max(1, Int(interleaved ? first.mNumberChannels : format.mChannelsPerFrame))
+        let minBytes = buffers.map { Int($0.mDataByteSize) }.min() ?? 0
+        let frames = interleaved ? minBytes / 4 / channels : minBytes / 4
+        let rate = format.mSampleRate
+        guard frames > 0, rate.isFinite, rate >= 8_000, rate <= 384_000 else { return }
 
         var out = Data(capacity: 4 + frames * 4)
-        out.appendBE(UInt32(format.mSampleRate))
+        out.appendBE(UInt32(rate))
         var pcm = [Int16](repeating: 0, count: frames * 2)
         var stereo = [Float](repeating: 0, count: frames * 2)
         for c in 0..<2 {

@@ -31,7 +31,7 @@ class AudioPlayer {
     private var readPos = 0          // in samples
     private var levelFrames = 0
     private var sampleRate = 0
-    private var thread: Thread? = null
+    @Volatile private var thread: Thread? = null
     @Volatile private var running = false
     @Volatile private var currentTrack: AudioTrack? = null
     @Volatile private var framesWritten = 0L
@@ -77,7 +77,8 @@ class AudioPlayer {
     private var statSince = SystemClock.elapsedRealtime()
 
     fun write(rate: Int, buf: ByteArray, offset: Int, length: Int) {
-        if (muted || rate <= 0) return
+        // The rate comes from the network; AudioTrack throws (on its own thread) for impossible ones.
+        if (muted || rate !in 8_000..192_000) return
         val frames = (length - length % 4) / 4
         if (frames <= 0) return
         synchronized(lock) {
@@ -166,7 +167,12 @@ class AudioPlayer {
 
     private fun playLoop(rate: Int) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-        val track = createTrack(rate)
+        val track = try {
+            createTrack(rate)
+        } catch (e: Exception) {
+            Log.w("ScreenBeam", "couldn't create the audio track for $rate Hz", e)
+            return
+        }
         framesWritten = 0
         currentTrack = track
         val outFrames = rate / 200 // 5 ms per write
@@ -176,7 +182,8 @@ class AudioPlayer {
         var fadeIn = false
         try {
             track.play()
-            while (running) {
+            // A replaced loop (new rate or session) exits instead of playing alongside its successor.
+            while (running && thread === Thread.currentThread()) {
                 var count: Int
                 synchronized(lock) {
                     if (buffering) {

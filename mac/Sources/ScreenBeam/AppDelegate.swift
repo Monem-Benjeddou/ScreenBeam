@@ -1,9 +1,13 @@
 import AppKit
+import CoreAudio
 import CoreGraphics
 import SwiftUI
 
 /// Main window + menu bar UI. Everything here runs on the main thread.
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
+    /// Posted by a second copy of the app at launch; the running copy shows its window instead.
+    static let showWindowNotification = Notification.Name("com.screenbeam.mac.showWindow")
+
     private let controller = StreamController()
     private let usb = UsbBridge()
     private var statusItem: NSStatusItem!
@@ -22,9 +26,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         updateIcon()
 
         Log.write("launched \(Bundle.main.bundlePath), preflight=\(CGPreflightScreenCaptureAccess())")
-        if !CGPreflightScreenCaptureAccess() {
+        // Ask macOS for Screen Recording once, ever. After that the setup checklist explains it and
+        // opens the right settings page, instead of a system prompt at every launch.
+        let defaults = UserDefaults.standard
+        if !CGPreflightScreenCaptureAccess() && !defaults.bool(forKey: "askedScreenRecording") {
+            defaults.set(true, forKey: "askedScreenRecording")
             CGRequestScreenCaptureAccess()
         }
+
+        // Crash recovery (see Resilience): tell the user, and honour safe mode.
+        let state = Resilience.loadState()
+        controller.safeMode = state.safeMode
+        model.safeMode = state.safeMode
+        if let what = state.reopenedAfter {
+            model.recoveryNotice = "ScreenBeam stopped unexpectedly and was reopened."
+            Log.write("reopened after: \(what)")
+            Resilience.update { $0.reopenedAfter = nil }
+        } else if state.gaveUpAfter != nil {
+            model.recoveryNotice = "ScreenBeam stopped several times in a row, so it wasn't reopened automatically. It's running in safe mode now."
+            Resilience.update { $0.gaveUpAfter = nil; $0.safeMode = true; $0.quickCrashes = 0 }
+            controller.safeMode = true
+            model.safeMode = true
+        }
+        model.onLeaveSafeMode = { [weak self] in
+            Resilience.update { $0.safeMode = false; $0.quickCrashes = 0 }
+            self?.model.safeMode = false
+            self?.controller.safeMode = false
+            self?.controller.restartIfStreaming()
+        }
+        model.onRetry = { [weak self] in self?.controller.restartIfStreaming() }
 
         controller.onStatus = { [weak self] status in
             guard let self else { return }
@@ -41,12 +71,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         showWindow()
 
         usb.onDevicesChanged = { [weak self] devices in self?.model.usbDevices = devices }
+        usb.onAdbAvailability = { [weak self] found in self?.model.adbAvailable = found }
         usb.start(port: UInt16(StreamServer.preferredPort.rawValue))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self else { return }
-            self.model.adbAvailable = self.usb.adbPath != nil
-        }
+        model.onVisible = { [weak self] in self?.usb.recheckAdb() }
         controller.start()
+
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(showWindow), name: Self.showWindowNotification, object: nil)
+        observeDefaultOutputDevice()
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(environmentChanged),
@@ -54,6 +86,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(environmentChanged),
             name: NSWorkspace.didWakeNotification, object: nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        usb.stop()
+        Resilience.markCleanExit()
+        Log.flush()
+    }
+
+    /// The tap and the synced player are tied to the output device: rebuild them when it changes
+    /// (headphones plugged in, AirPods connected...).
+    private func observeDefaultOutputDevice() {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &address, .main) { [weak self] _, _ in
+            Log.write("audio output device changed")
+            self?.environmentChanged()
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -75,18 +125,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w.title = "ScreenBeam"
             w.styleMask = [.titled, .closable, .miniaturizable]
             w.isReleasedWhenClosed = false
+            w.delegate = self
             w.center()
             window = w
         }
         model.refresh()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        model.setVisible(true)
+    }
+
+    // Closing the window frees it (and its QR image); the app keeps serving from the menu bar.
+    func windowWillClose(_ notification: Notification) {
+        model.setVisible(false)
+        window?.delegate = nil
+        DispatchQueue.main.async { self.window = nil }
+    }
+
+    // Only refresh the checklist while someone can see it.
+    func windowDidChangeOcclusionState(_ notification: Notification) {
+        guard let w = window else { return }
+        model.setVisible(w.occlusionState.contains(.visible))
     }
 
     @objc private func environmentChanged() {
         // Debounce: display reconfiguration fires several notifications in a row.
         restartWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.controller.restartIfStreaming() }
+        let work = DispatchWorkItem { [weak self] in self?.controller.environmentChanged() }
         restartWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
     }
@@ -236,7 +301,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func disconnect() { controller.disconnect() }
 
     @objc func openPrivacySettings() {
-        CGRequestScreenCaptureAccess()
+        // The system prompt only adds ScreenBeam to the list; ask it once, then just open the page.
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "askedScreenRecording") {
+            defaults.set(true, forKey: "askedScreenRecording")
+            CGRequestScreenCaptureAccess()
+        }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
         }
