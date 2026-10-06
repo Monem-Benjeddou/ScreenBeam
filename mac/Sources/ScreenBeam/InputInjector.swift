@@ -13,7 +13,10 @@ final class InputInjector {
     private var keysDown: Set<UInt16> = []
     private var flags: CGEventFlags = []
     private var lastClick = (time: Date.distantPast, location: CGPoint.zero, count: 0)
-    private var warnedNoPermission = false
+    private var warnedNoPermissionAt = Date.distantPast
+    private var trustCache = (value: false, checkedAt: Date.distantPast)
+    /// Input arrived but Accessibility is off (at most once a minute). Called on the input queue.
+    var onUntrustedInput: (() -> Void)?
     // Diagnostics: what arrived from the phone, logged every few seconds while input flows.
     private var counts: [MessageType: Int] = [:]
     private var lastReport = Date()
@@ -33,11 +36,16 @@ final class InputInjector {
             counts.removeAll()
             lastReport = Date()
         }
-        guard Self.isTrusted else {
-            if !warnedNoPermission {
-                warnedNoPermission = true
+        // Checked at most once a second (input arrives hundreds of times a second). Never prompts from
+        // here: the Mac window shows a banner and the phone is told, instead of a pop-up per session.
+        if Date().timeIntervalSince(trustCache.checkedAt) > 1 {
+            trustCache = (AXIsProcessTrusted(), Date())
+        }
+        guard trustCache.value else {
+            if Date().timeIntervalSince(warnedNoPermissionAt) > 60 {
+                warnedNoPermissionAt = Date()
                 Log.write("input ignored: Accessibility permission not granted")
-                DispatchQueue.main.async { Self.requestTrust() }
+                onUntrustedInput?()
             }
             return
         }

@@ -28,6 +28,8 @@ enum MessageType: UInt8 {
     case audio = 15           // u64 pts µs, PCM s16le stereo 48 kHz
     case ready = 16           // hello accepted (lets controller-only phones know they're live)
     case audioLowLatency = 17 // u32 sample rate, PCM s16le stereo (Core Audio tap, v5+ phones)
+    /// A message for the person holding the phone (UTF-8); the session continues. Older phones ignore it.
+    case notice = 18
 }
 
 enum Wire {

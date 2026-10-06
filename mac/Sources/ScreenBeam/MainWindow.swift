@@ -14,20 +14,42 @@ final class AppModel: ObservableObject {
     @Published var adbAvailable = true
     @Published var pairedOnce = Pairing.pairedOnce
     @Published var qrImage: NSImage?
+    /// "ScreenBeam was reopened after a crash" and similar; dismissible.
+    @Published var recoveryNotice: String?
+    @Published var safeMode = false
     private var refreshTimer: Timer?
+    private var qrPort: UInt16 = 0
+
+    var onLeaveSafeMode: (() -> Void)?
+    var onRetry: (() -> Void)?
+    var onVisible: (() -> Void)?
 
     /// Steps the user must finish before streaming works (Accessibility is optional, for control only).
     var setupComplete: Bool { hasPermission && hasAccessibility && pairedOnce }
 
-    init() {
-        // Keep the checklist live: permissions granted in System Settings tick off without a restart.
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            self?.refresh()
+    /// While the window is on screen, keep the checklist live (permissions granted in System Settings
+    /// tick off without a restart). Nothing polls while it's hidden or closed.
+    func setVisible(_ visible: Bool) {
+        if visible, refreshTimer == nil {
+            refresh()
+            onVisible?()
+            let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
+            t.tolerance = 0.5
+            RunLoop.main.add(t, forMode: .common)
+            refreshTimer = t
+        } else if !visible {
+            refreshTimer?.invalidate()
+            refreshTimer = nil
         }
     }
 
     func openAccessibilitySettings() {
-        InputInjector.requestTrust()
+        // The system prompt only adds ScreenBeam to the list: show it once, then just open the page.
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "askedAccessibility") {
+            defaults.set(true, forKey: "askedAccessibility")
+            InputInjector.requestTrust()
+        }
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
@@ -66,8 +88,9 @@ final class AppModel: ObservableObject {
         let paired = Pairing.pairedOnce
         if paired != pairedOnce { pairedOnce = paired }
         let ips = NetworkInfo.localIPv4Addresses()
-        if ips != addresses || qrImage == nil {
+        if ips != addresses || qrImage == nil || qrPort != port {
             addresses = ips
+            qrPort = port
             qrImage = PairingQR.image(addresses: ips, port: port, code: pairingCode)
         }
     }
@@ -86,6 +109,7 @@ struct MainView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
+            banners
             if !model.setupComplete { setupCard }
             connectCard
             settingsCard
@@ -107,8 +131,45 @@ struct MainView: View {
             if isStreaming {
                 Button("Stop") { model.onDisconnect?() }
                     .keyboardShortcut(".", modifiers: .command)
+            } else if case .failed = model.status {
+                Button("Try Again") { model.onRetry?() }
+                    .keyboardShortcut(.defaultAction)
             }
         }
+    }
+
+    // MARK: Banners (calm, in-window; never pop-ups)
+
+    @ViewBuilder private var banners: some View {
+        if let notice = model.recoveryNotice {
+            banner(icon: "arrow.clockwise.circle", tint: .orange, text: notice) {
+                Button("OK") { model.recoveryNotice = nil }
+            }
+        }
+        if model.safeMode {
+            banner(icon: "shield", tint: .orange,
+                   text: "Safe mode: Mac sound is captured the slower, older way, because ScreenBeam stopped right after starting more than once.") {
+                Button("Turn Fast Sound Back On") { model.onLeaveSafeMode?() }
+            }
+        }
+        if model.setupComplete == false, model.pairedOnce, !model.hasAccessibility, isStreaming {
+            banner(icon: "hand.raised", tint: .secondary,
+                   text: "Your phone can't control this Mac until ScreenBeam is allowed in Accessibility.") {
+                Button("Open Settings") { model.openAccessibilitySettings() }
+            }
+        }
+    }
+
+    private func banner<Actions: View>(icon: String, tint: Color, text: String,
+                                       @ViewBuilder actions: () -> Actions) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: icon).font(.title3).foregroundStyle(tint)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 4)
+            actions()
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(tint.opacity(0.12)))
     }
 
     // MARK: Setup checklist
@@ -310,5 +371,51 @@ struct MainView: View {
         case .sound: return "Sound only · no video sent"
         case .failed(let message): return message
         }
+    }
+}
+
+/// Renders the window with demo data (never the user's real code, addresses or screen), to check
+/// banners and states: `ScreenBeam --render-preview out.png <scenario>`.
+enum WindowPreview {
+    @MainActor
+    static func render(to path: String, scenario: String) -> Bool {
+        let model = AppModel()
+        model.pairingCode = "482913"
+        model.addresses = ["192.168.1.20"]
+        model.qrImage = PairingQR.image(addresses: ["192.168.1.20"], port: 7878, code: "482913")
+        model.adbAvailable = true
+        model.hasPermission = true
+        model.hasAccessibility = true
+        model.pairedOnce = true
+        model.status = .waiting(port: 7878)
+        switch scenario {
+        case "setup":
+            model.hasPermission = false
+            model.hasAccessibility = false
+            model.pairedOnce = false
+        case "streaming":
+            model.status = .streaming(device: "Galaxy S24 Ultra", width: 2340, height: 1080, codec: "H.264", fps: 60)
+        case "extend":
+            model.status = .streaming(device: "Galaxy S24 Ultra (second screen)", width: 2340, height: 1080, codec: "H.264", fps: 60)
+        case "recovered":
+            model.recoveryNotice = "ScreenBeam stopped unexpectedly and was reopened."
+        case "safemode":
+            model.recoveryNotice = "ScreenBeam stopped several times in a row, so it wasn't reopened automatically. It's running in safe mode now."
+            model.safeMode = true
+        case "failed":
+            model.status = .failed("ScreenBeam isn't allowed to record the screen. Turn it on in System Settings → Privacy & Security → Screen & System Audio Recording.")
+        case "noaccess":
+            model.hasAccessibility = false
+            model.status = .streaming(device: "Galaxy S24 Ultra", width: 2340, height: 1080, codec: "H.264", fps: 60)
+        default:
+            break
+        }
+        // ImageRenderer draws SwiftUI text and layout faithfully; native controls show as placeholders.
+        let renderer = ImageRenderer(content: MainView(model: model).background(Color(nsColor: .windowBackgroundColor)))
+        renderer.scale = 2
+        guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        else { return false }
+        return (try? png.write(to: URL(fileURLWithPath: path))) != nil
     }
 }

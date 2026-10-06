@@ -23,6 +23,18 @@ Use the [issue templates](https://github.com/Monem-Benjeddou/ScreenBeam/issues/n
 - the pull request needs an approving review
 - history stays linear, so pull requests are squashed or rebased when merged
 
+## Testing crash recovery
+
+Both apps recover from crashes by themselves. These switches crash or freeze them on purpose, so you can check that recovery works:
+
+| | Command | What happens |
+|---|---|---|
+| Mac | `defaults write com.screenbeam.mac debug.crashOnLaunch -int 3` | The next 3 launches crash 2 s in. Expect: reopened, then safe mode, then not reopened |
+| Mac | `defaults write com.screenbeam.mac debug.hangOnLaunch -bool YES` | The main thread freezes once. Expect: reopened after about 9 s |
+| Phone | `adb shell setprop debug.screenbeam.crash 3` | Same as the first Mac row. Reset with `setprop debug.screenbeam.crash 0` |
+
+Recovery state lives in `~/Library/Application Support/ScreenBeam/state.json` (Mac). To see the window in each state with demo data, run `ScreenBeam --render-preview out.png safemode`. The other states are `setup`, `recovered`, `failed`, `noaccess` and `extend`.
+
 ## License
 
 By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).

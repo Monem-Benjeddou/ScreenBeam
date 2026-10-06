@@ -63,7 +63,9 @@ final class VideoEncoder {
 
     /// The pts in µs as sent on the wire (and echoed back in acks).
     static func micros(_ pts: CMTime) -> UInt64 {
-        pts.isValid ? UInt64(max(0, pts.seconds * 1_000_000)) : 0
+        guard pts.isNumeric else { return 0 }
+        let us = pts.seconds * 1_000_000
+        return us.isFinite && us > 0 ? UInt64(min(us, 9.0e18)) : 0
     }
 
     func invalidate() {

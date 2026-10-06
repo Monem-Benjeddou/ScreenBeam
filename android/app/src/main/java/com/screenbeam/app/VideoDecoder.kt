@@ -41,7 +41,8 @@ class VideoDecoder(
         if (!broken && codec != null && currentConfig.contentEquals(rawConfig)) return false
         releaseCodec()
 
-        val format = buildFormat(mime, width, height, paramSets, lowLatencyExtras = true)
+        // Safe mode (after repeated crashes) skips the vendor low-latency keys, the riskiest part.
+        val format = buildFormat(mime, width, height, paramSets, lowLatencyExtras = !CrashGuard.safeMode)
         val created = createCodec(mime, format)
             ?: createCodec(mime, buildFormat(mime, width, height, paramSets, lowLatencyExtras = false))
             ?: throw IllegalStateException("This phone can't decode ${width}x$height video")
@@ -131,8 +132,8 @@ class VideoDecoder(
             format.setByteBuffer("csd-0", annexB(paramSets))
         } else {
             // H.264 wants SPS in csd-0 and PPS in csd-1.
-            format.setByteBuffer("csd-0", annexB(paramSets.filter { (it[0].toInt() and 0x1f) == 7 }))
-            format.setByteBuffer("csd-1", annexB(paramSets.filter { (it[0].toInt() and 0x1f) == 8 }))
+            format.setByteBuffer("csd-0", annexB(paramSets.filter { it.isNotEmpty() && (it[0].toInt() and 0x1f) == 7 }))
+            format.setByteBuffer("csd-1", annexB(paramSets.filter { it.isNotEmpty() && (it[0].toInt() and 0x1f) == 8 }))
         }
         format.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(width * height, 2 * 1024 * 1024))
         format.setInteger(MediaFormat.KEY_COLOR_STANDARD, MediaFormat.COLOR_STANDARD_BT709)
@@ -206,7 +207,12 @@ class VideoDecoder(
         data class Capabilities(val codecMask: Int, val maxWidth: Int, val maxHeight: Int)
 
         /** What this phone's hardware decoders can handle, sent to the Mac in the hello. */
-        fun capabilities(): Capabilities {
+        /** Scanning MediaCodecList is slow; the answer never changes while the app runs. */
+        fun capabilities(): Capabilities = cachedCapabilities
+
+        private val cachedCapabilities: Capabilities by lazy { scanCapabilities() }
+
+        private fun scanCapabilities(): Capabilities {
             var mask = 0
             var maxW = 0
             var maxH = 0

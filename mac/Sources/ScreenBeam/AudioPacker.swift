@@ -31,6 +31,10 @@ enum AudioPacker {
         let frames = CMSampleBufferGetNumSamples(sb)
         let channels = Int(asbd.mChannelsPerFrame)
         let interleaved = asbd.mFormatFlags & kAudioFormatFlagIsNonInterleaved == 0
+        // Never read past what the buffers actually hold.
+        let perFrame = interleaved ? 4 * max(channels, 1) : 4
+        guard channels > 0, buffers.count > 0, frames > 0,
+              buffers.allSatisfy({ Int($0.mDataByteSize) >= frames * perFrame }) else { return nil }
 
         var out = Data(capacity: 8 + frames * 4)
         out.appendBE(VideoEncoder.micros(CMSampleBufferGetPresentationTimeStamp(sb)))

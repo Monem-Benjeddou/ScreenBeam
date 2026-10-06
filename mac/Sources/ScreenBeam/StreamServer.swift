@@ -35,7 +35,6 @@ final class StreamServer {
     func start() {
         queue.async {
             self.listen(on: Self.preferredPort)
-            self.startHeartbeat()
         }
     }
 
@@ -91,6 +90,10 @@ final class StreamServer {
         queue.async { self.client?.send(.error, Wire.errorPayload(message, code: .retry)) }
     }
 
+    func sendNotice(_ message: String) {
+        queue.async { self.client?.send(.notice, Data(message.utf8)) }
+    }
+
     // MARK: - Listener
 
     private func listen(on port: NWEndpoint.Port) {
@@ -111,7 +114,7 @@ final class StreamServer {
             retryListen(after: port)
             return
         }
-        let name = Host.current().localizedName ?? "Mac"
+        let name = Pairing.computerName
         listener.service = NWListener.Service(name: name, type: Self.serviceType)
         listener.stateUpdateHandler = { [weak self, weak listener] state in
             guard let self, let listener else { return }
@@ -158,6 +161,10 @@ final class StreamServer {
         c.onClose = { [weak self, weak c] in
             guard let self, let c else { return }
             self.connections[ObjectIdentifier(c)] = nil
+            if self.connections.isEmpty {
+                self.heartbeat?.cancel()
+                self.heartbeat = nil
+            }
             if self.audioClient === c { self.audioClient = nil }
             guard self.client === c else { return }
             self.client = nil
@@ -166,7 +173,29 @@ final class StreamServer {
             self.onClientGone?()
         }
         connections[ObjectIdentifier(c)] = c
+        if heartbeat == nil { startHeartbeat() }  // only while someone is connected
         c.start()
+    }
+
+    // MARK: Pairing throttle: a 6-digit code must not be guessable by trying them all.
+
+    private var pairingFailures: [String: (count: Int, lockedUntil: Date)] = [:]
+
+    private func pairingLocked(_ c: Client) -> Bool {
+        guard let f = pairingFailures[c.peer] else { return false }
+        return f.lockedUntil > Date()
+    }
+
+    private func recordPairingFailure(_ c: Client) {
+        var f = pairingFailures[c.peer] ?? (0, .distantPast)
+        f.count += 1
+        if f.count >= 5 {
+            // 1 min after 5 wrong codes, doubling for each further wrong code (max 1 h).
+            let minutes = min(60.0, pow(2.0, Double(f.count - 5)))
+            f.lockedUntil = Date().addingTimeInterval(minutes * 60)
+            Log.write("pairing: \(f.count) wrong codes from \(c.peer); refusing it for \(Int(minutes)) min")
+        }
+        pairingFailures[c.peer] = f
     }
 
     private func handle(type: UInt8, payload: Data, from c: Client) {
@@ -180,7 +209,12 @@ final class StreamServer {
                 c.close(reason: "Update the ScreenBeam app on your phone.", code: .stop)
                 return
             }
+            guard !pairingLocked(c) else {
+                c.close(reason: "Too many wrong pairing codes. Wait a minute, then try again.", code: .pairing)
+                return
+            }
             guard validatePairing?(hello.pairingCode) ?? false else {
+                recordPairingFailure(c)
                 Log.write("rejected \(hello.deviceName): wrong pairing code")
                 c.close(reason: hello.pairingCode.isEmpty ? "Enter the pairing code shown on your Mac."
                                                           : "Wrong pairing code. Check the code on your Mac.",
@@ -203,7 +237,7 @@ final class StreamServer {
             if let ms = r.uint(UInt16.self) { onPhoneAudioLatency?(Int(ms)) }
         case .audioHello:
             var r = ByteReader(payload)
-            guard r.take(4) == Array("SBA1".utf8), let len = r.u8(), let pin = r.take(Int(len)),
+            guard !pairingLocked(c), r.take(4) == Array("SBA1".utf8), let len = r.u8(), let pin = r.take(Int(len)),
                   validatePairing?(String(decoding: pin, as: UTF8.self)) ?? false, client != nil
             else {
                 c.close(reason: nil)
@@ -261,9 +295,17 @@ private final class Client {
     var onDrained: (() -> Void)?
     var onClose: (() -> Void)?
 
+    /// Remote address, for the pairing throttle (USB phones all show up as 127.0.0.1).
+    let peer: String
+
     init(connection: NWConnection, queue: DispatchQueue) {
         self.connection = connection
         self.queue = queue
+        if case .hostPort(let host, _) = connection.endpoint {
+            peer = "\(host)"
+        } else {
+            peer = "\(connection.endpoint)"
+        }
     }
 
     func start() {

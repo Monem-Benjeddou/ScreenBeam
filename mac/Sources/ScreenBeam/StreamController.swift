@@ -20,10 +20,11 @@ struct StreamSettings: Equatable {
 
     static func load() -> StreamSettings {
         var s = StreamSettings()
-        if let v = defaults.object(forKey: "displayID") as? Int { s.displayID = UInt32(v) }
-        if let v = defaults.object(forKey: "bitrateMbps") as? Int { s.bitrateMbps = v }
-        if let v = defaults.object(forKey: "fps") as? Int { s.fps = v }
-        if let v = defaults.object(forKey: "maxHeight") as? Int { s.maxHeight = v }
+        // Values are clamped: a hand-edited or corrupted preference must never crash the app.
+        if let v = defaults.object(forKey: "displayID") as? Int { s.displayID = UInt32(truncatingIfNeeded: max(0, v)) }
+        if let v = defaults.object(forKey: "bitrateMbps") as? Int { s.bitrateMbps = min(200, max(2, v)) }
+        if let v = defaults.object(forKey: "fps") as? Int { s.fps = min(120, max(15, v)) }
+        if let v = defaults.object(forKey: "maxHeight") as? Int { s.maxHeight = min(4320, max(0, v)) }
         if let v = defaults.object(forKey: "codec") as? Int, let c = CodecPreference(rawValue: v) { s.codec = c }
         if let v = defaults.object(forKey: "gamingMode") as? Bool { s.gamingMode = v }
         if let v = defaults.object(forKey: "macSpeakers") as? Int, let m = MacSpeakers(rawValue: v) { s.macSpeakers = m }
@@ -82,9 +83,12 @@ final class StreamController {
     private var virtualDisplay: VirtualDisplay?
     private var virtualDisplaySize = (0, 0)
     private var virtualDisplayRelease: DispatchWorkItem?
+    private var ignoreDisplayChangesUntil = Date.distantPast
 
     private let audioSetupQueue = DispatchQueue(label: "screenbeam.audio-setup")
     private var audioSetupStuck = false
+    /// Safe mode (after repeated crashes): no system sound capture. Set before `start()`.
+    var safeMode = false
 
     // Flow control: frames encoded but not yet confirmed on the phone's screen, by pts µs.
     // Capping this bounds glass-to-glass latency: when the phone or Wi-Fi falls behind we
@@ -136,6 +140,9 @@ final class StreamController {
             self.inputQueue.async { self.input.handle(type, payload) }
         }
         server.validatePairing = { Pairing.matches($0) }
+        input.onUntrustedInput = { [weak self] in
+            self?.server.sendNotice("Your Mac isn't letting ScreenBeam control it yet. On the Mac: System Settings → Privacy & Security → Accessibility → turn on ScreenBeam.")
+        }
         server.onPhoneAudioLatency = { [weak self] ms in
             // Phone delay (receipt → speaker) + ~1 ms transit; the player subtracts the Mac's own output delay.
             self?.pipeline.async { self?.macPlayer?.setPhoneLatency(Double(ms + 1) / 1000) }
@@ -160,6 +167,16 @@ final class StreamController {
         }
     }
 
+    /// Displays changed, the Mac woke, or the audio device changed: restart the stream so it picks up
+    /// the new setup. Ignores the display change our own virtual display just caused.
+    func environmentChanged() {
+        pipeline.async {
+            guard Date() > self.ignoreDisplayChangesUntil, let hello = self.hello else { return }
+            Log.write("displays, wake or audio device changed: restarting the stream")
+            self.startSession(hello)
+        }
+    }
+
     func disconnect() { server.disconnectClient() }
 
     // MARK: - Session lifecycle (pipeline queue)
@@ -170,44 +187,19 @@ final class StreamController {
         // Phones from v5 get low-latency Core Audio tap audio; if the tap can't start, video sessions
         // fall back to ScreenCaptureKit audio (≈55 ms later).
         var useCaptureAudio = hello.wantsAudio
-        if hello.wantsAudio && hello.version >= 5 && audioSetupStuck {
+        if hello.wantsAudio && hello.version >= 5 && safeMode {
+            Log.write("safe mode: system sound capture is off; using capture audio")
+        } else if hello.wantsAudio && hello.version >= 5 && audioSetupStuck {
             Log.write("audio tap skipped: an earlier Core Audio call still hasn't returned")
         } else if hello.wantsAudio && hello.version >= 5, #available(macOS 14.2, *) {
-            let tap = SystemAudioTap()
-            tap.onPacket = { [weak self] payload in self?.server.sendAudio(payload, type: .audioLowLatency) }
-            // "Both in sync": play our own delayed copy on the Mac. The player must exist before the
-            // tap so this process can be excluded from it (else our playback would loop to the phone).
-            var player: SyncedMacPlayer?
-            var exclude: [AudioObjectID] = []
-            if settings.macSpeakers == .synced {
-                let p = SyncedMacPlayer()
-                do {
-                    try p.start()
-                    if let me = SyncedMacPlayer.currentProcessObject() {
-                        exclude = [me]
-                        player = p
-                    } else {
-                        p.stop()
-                        Log.write("synced Mac playback unavailable: process not registered with Core Audio")
-                    }
-                } catch {
-                    Log.write("synced Mac playback failed: \(error)")
-                }
-            }
-            if let player { tap.onFloatStereo = { player.push($0, frames: $1) } }
-            let mute = settings.macSpeakers == .muted || player != nil
-            do {
-                try startWithTimeout(tap, muteMac: mute, exclude: exclude)
+            if let (tap, player) = startAudioWithTimeout(macSpeakers: settings.macSpeakers) {
+                audioTap = tap
                 macPlayer = player
+                useCaptureAudio = false
                 if let player {
                     Log.write(String(format: "Mac speakers synced to phone (Mac output latency %.1f ms)",
                                      player.macOutputLatency * 1000))
                 }
-                audioTap = tap
-                useCaptureAudio = false
-            } catch {
-                player?.stop()
-                Log.write("audio tap unavailable (\(error)); using capture audio")
             }
         }
         if hello.controllerOnly {
@@ -292,8 +284,9 @@ final class StreamController {
                     capture.onAudio = { [weak self] sb in
                         if let payload = AudioPacker.pack(sb) { self?.server.sendAudio(payload) }
                     }
-                    capture.onStop = { [weak self] _ in
+                    capture.onStop = { [weak self] error in
                         // System interrupted capture (display gone, lock screen...). Try again shortly.
+                        Log.write("capture stopped by macOS (\(error)); restarting in 1 s")
                         self?.pipeline.asyncAfter(deadline: .now() + 1) {
                             guard let self, gen == self.generation, let hello = self.hello else { return }
                             self.startSession(hello)
@@ -328,36 +321,73 @@ final class StreamController {
         }
     }
 
-    private struct AudioSetupTimeout: Error, CustomStringConvertible {
-        var description: String { "Core Audio didn't answer within 2 s" }
-    }
-
-    /// Starts the tap without letting Core Audio freeze the pipeline: if creating the tap hangs (seen
-    /// after the app was quit and reopened quickly), give up after 2 s and stream without it. A late
-    /// success is stopped right away, and no new tap is attempted until the stuck call returns.
+    /// Creates the system-sound tap (and, for "both in sync", the Mac's own delayed player) on a
+    /// separate queue, waiting at most 2 s. Core Audio calls can hang (seen after the app was quit and
+    /// reopened quickly); then this session streams without the tap instead of freezing the pipeline.
+    /// A late success is stopped, and no new tap is tried until the stuck call returns.
     @available(macOS 14.2, *)
-    private func startWithTimeout(_ tap: SystemAudioTap, muteMac: Bool, exclude: [AudioObjectID]) throws {
-        final class Outcome { var error: Error?; var abandoned = false }
-        let outcome = Outcome()
+    private func startAudioWithTimeout(macSpeakers: StreamSettings.MacSpeakers) -> (SystemAudioTap, SyncedMacPlayer?)? {
+        final class Job { var tap: SystemAudioTap?; var player: SyncedMacPlayer?; var error: Error?; var abandoned = false }
+        let job = Job()
         let done = DispatchSemaphore(value: 0)
         audioSetupStuck = true
         audioSetupQueue.async { [weak self] in
-            do { try tap.start(muteMac: muteMac, exclude: exclude) } catch { outcome.error = error }
-            self?.pipeline.async {
-                self?.audioSetupStuck = false
-                if outcome.abandoned {
-                    tap.stop()
-                    Log.write("audio tap: the stuck Core Audio call finally returned")
+            let tap = SystemAudioTap()
+            tap.onPacket = { [weak self] payload in self?.server.sendAudio(payload, type: .audioLowLatency) }
+            // The player must exist before the tap so this process can be excluded from it
+            // (else our own delayed playback would loop back to the phone).
+            var player: SyncedMacPlayer?
+            var exclude: [AudioObjectID] = []
+            if macSpeakers == .synced {
+                let p = SyncedMacPlayer()
+                do {
+                    try p.start()
+                    if let me = SyncedMacPlayer.currentProcessObject() {
+                        exclude = [me]
+                        player = p
+                    } else {
+                        p.stop()
+                        Log.write("synced Mac playback unavailable: process not registered with Core Audio")
+                    }
+                } catch {
+                    Log.write("synced Mac playback failed: \(error)")
                 }
             }
+            if let player { tap.onFloatStereo = { player.push($0, frames: $1) } }
+            do {
+                try tap.start(muteMac: macSpeakers == .muted || player != nil, exclude: exclude)
+                job.tap = tap
+                job.player = player
+            } catch {
+                player?.stop()
+                job.error = error
+            }
             done.signal()
+            self?.pipeline.async {
+                self?.audioSetupStuck = false
+                guard job.abandoned else { return }
+                Log.write("audio tap: the stuck Core Audio call finally returned; stopping it")
+                self?.audioSetupQueue.async { Self.stopAudio(job.tap, job.player) }
+            }
         }
         if done.wait(timeout: .now() + 2) == .timedOut {
-            outcome.abandoned = true
-            throw AudioSetupTimeout()
+            job.abandoned = true
+            Log.write("audio tap unavailable (Core Audio didn't answer within 2 s); using capture audio")
+            return nil
         }
         audioSetupStuck = false
-        if let error = outcome.error { throw error }
+        if let error = job.error { Log.write("audio tap unavailable (\(error)); using capture audio") }
+        guard let tap = job.tap else { return nil }
+        return (tap, job.player)
+    }
+
+    /// Stop first, then drop the callbacks (they're read on Core Audio's thread until it stops).
+    @available(macOS 14.2, *)
+    private static func stopAudio(_ tap: SystemAudioTap?, _ player: SyncedMacPlayer?) {
+        tap?.stop()
+        tap?.onPacket = nil
+        tap?.onFloatStereo = nil
+        player?.stop()
     }
 
     /// Reuses the virtual display if it already matches the phone, else makes a new one.
@@ -365,11 +395,13 @@ final class StreamController {
         virtualDisplayRelease?.cancel()
         virtualDisplayRelease = nil
         // Landscape; phones too old to report their screen get a common 20:9 size.
+        // Clamped: the size comes from the network, and no phone is bigger than 8K.
         let size = hello.screenWidth > 0 && hello.screenHeight > 0
-            ? (max(hello.screenWidth, hello.screenHeight), min(hello.screenWidth, hello.screenHeight))
+            ? (min(7680, max(hello.screenWidth, hello.screenHeight)), min(4320, min(hello.screenWidth, hello.screenHeight)))
             : (2400, 1080)
         if let vd = virtualDisplay, virtualDisplaySize == size { return vd }
         virtualDisplay = nil
+        ignoreDisplayChangesUntil = Date().addingTimeInterval(3)
         virtualDisplay = VirtualDisplay(pixelWidth: size.0, pixelHeight: size.1, name: "\(hello.deviceName) (ScreenBeam)")
         virtualDisplaySize = size
         return virtualDisplay
@@ -380,10 +412,12 @@ final class StreamController {
         virtualDisplayRelease = nil
         guard virtualDisplay != nil else { return }
         if seconds <= 0 {
+            ignoreDisplayChangesUntil = Date().addingTimeInterval(3)
             virtualDisplay = nil
             return
         }
         let work = DispatchWorkItem { [weak self] in
+            self?.ignoreDisplayChangesUntil = Date().addingTimeInterval(3)
             self?.virtualDisplay = nil
             self?.virtualDisplayRelease = nil
         }
@@ -393,13 +427,12 @@ final class StreamController {
 
     private func teardown() {
         generation += 1
+        // Off the pipeline: stopping Core Audio objects can hang too.
         if #available(macOS 14.2, *), let tap = audioTap as? SystemAudioTap {
-            tap.onPacket = nil
-            tap.onFloatStereo = nil
-            tap.stop()
+            let player = macPlayer
+            audioSetupQueue.async { Self.stopAudio(tap, player) }
         }
         audioTap = nil
-        macPlayer?.stop()
         macPlayer = nil
         refreshTimer?.cancel()
         refreshTimer = nil
@@ -420,8 +453,9 @@ final class StreamController {
             Task { await capture.stop() }
         }
         capture = nil
-        encoder?.onEncoded = nil
+        // Stop first: VideoToolbox calls onEncoded on its own thread until the session is invalidated.
         encoder?.invalidate()
+        encoder?.onEncoded = nil
         encoder = nil
         lastPixelBuffer = nil
     }
