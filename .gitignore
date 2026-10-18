@@ -5,7 +5,6 @@ mac/.build/
 mac/build/
 android/.gradle/
 android/build/
-temp_auto_push.bat
 android/app/build/
 android/local.properties
 android/.idea/
@@ -14,4 +13,3 @@ android/.idea/
 *.jks
 __pycache__/
 .gitignore
-branch_structure.json
