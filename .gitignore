@@ -12,3 +12,4 @@ android/.idea/
 *.keystore
 *.jks
 __pycache__/
+.gitignore
